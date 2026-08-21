@@ -1,0 +1,446 @@
+import Link from "next/link";
+import {
+  getLeaderboard,
+  getLastSession,
+  getTotalSessions,
+  getFunLabels,
+  getAdvancedStats,
+  getRivalries,
+  getHandStats,
+  getHandFunLabels,
+  getKillStats,
+} from "@/lib/stats";
+
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats] =
+    await Promise.all([
+      getLeaderboard(),
+      getLastSession(),
+      getTotalSessions(),
+      getFunLabels(),
+      getAdvancedStats(),
+      getRivalries(),
+      getHandStats(),
+      getHandFunLabels(),
+      getKillStats(),
+    ]);
+
+  return (
+    <div className="mx-auto min-h-screen max-w-lg bg-gray-950 px-4 py-8 text-gray-100">
+      <h1 className="mb-2 text-center text-3xl font-bold">🃏 Poker League</h1>
+      <p className="mb-8 text-center text-sm text-gray-500">
+        {totalSessions} {totalSessions === 1 ? "sesión" : "sesiones"} jugadas
+      </p>
+
+      {/* Last Session */}
+      {lastSession && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Última Mesa
+          </h2>
+          <div className="rounded-xl bg-gray-900 p-4">
+            <p className="mb-3 text-sm text-gray-400">
+              {new Date(lastSession.playedAt + "T12:00:00").toLocaleDateString(
+                "es-MX",
+                { day: "numeric", month: "long", year: "numeric" }
+              )}{" "}
+              · {lastSession.playerCount} jugadores
+            </p>
+            <div className="space-y-2">
+              {lastSession.players.map((p) => (
+                <div
+                  key={p.finishPosition}
+                  className="flex items-center gap-3"
+                >
+                  <span
+                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
+                      p.finishPosition === 1
+                        ? "bg-yellow-500 text-black"
+                        : p.finishPosition === 2
+                        ? "bg-gray-300 text-black"
+                        : p.finishPosition === 3
+                        ? "bg-amber-700 text-white"
+                        : "bg-gray-700 text-gray-400"
+                    }`}
+                  >
+                    {p.finishPosition}
+                  </span>
+                  <span
+                    className={
+                      (p.finishPosition ?? 99) <= 3 ? "font-medium" : "text-gray-400"
+                    }
+                  >
+                    {p.nickname || p.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Fun Labels */}
+      {funLabels.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Premios de la Mesa
+          </h2>
+          <div className="grid grid-cols-1 gap-2">
+            {funLabels.map((label, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3"
+              >
+                <span className="text-2xl">{label.emoji}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">
+                    {label.title}
+                  </p>
+                  <p className="truncate font-semibold text-white">
+                    {label.player}
+                  </p>
+                  <p className="text-xs text-gray-500">{label.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Kill Stats */}
+      {killStats.topKiller && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Eliminaciones
+          </h2>
+          <div className="grid grid-cols-1 gap-2">
+            {/* El Asesino */}
+            {killStats.topKiller && (
+              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+                <span className="text-2xl">🗡️</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">El Asesino</p>
+                  <p className="truncate font-semibold text-white">
+                    {killStats.topKiller.nickname || killStats.topKiller.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {killStats.topKiller.kills} eliminaciones totales
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* La Víctima */}
+            {killStats.topVictim && (
+              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+                <span className="text-2xl">🎯</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">La Víctima</p>
+                  <p className="truncate font-semibold text-white">
+                    {killStats.topVictim.nickname || killStats.topVictim.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Eliminado {killStats.topVictim.times} veces por {killStats.topVictim.killerNickname || killStats.topVictim.killerName}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* El Villano */}
+            {killStats.topVillain && (
+              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+                <span className="text-2xl">😈</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">El Villano</p>
+                  <p className="truncate font-semibold text-white">
+                    {killStats.topVillain.nickname || killStats.topVillain.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Ha eliminado al campeón {killStats.topVillain.championsKilled} veces
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Kill Leaderboard */}
+            {killStats.killLeaderboard.length > 1 && (
+              <div className="rounded-lg bg-gray-900 px-4 py-3">
+                <p className="mb-2 text-sm font-medium text-gray-300">Kills Totales</p>
+                <div className="space-y-1">
+                  {killStats.killLeaderboard.slice(0, 5).map((k, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-400">
+                        {k.nickname || k.name}
+                      </span>
+                      <span className="font-bold text-red-400">{k.kills}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Leaderboard */}
+      {leaderboard.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Leaderboard
+          </h2>
+          <div className="rounded-xl bg-gray-900">
+            {/* Header */}
+            <div className="grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 border-b border-gray-800 px-4 py-2 text-xs text-gray-500">
+              <span>#</span>
+              <span>Jugador</span>
+              <span className="text-center">W</span>
+              <span className="text-center">🥉</span>
+              <span className="text-center">Pts</span>
+              <span className="text-center">P/S</span>
+            </div>
+            {/* Rows */}
+            {leaderboard.map((entry, i) => (
+              <div
+                key={entry.playerId}
+                className={`grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 px-4 py-3 ${
+                  i < leaderboard.length - 1
+                    ? "border-b border-gray-800/50"
+                    : ""
+                }`}
+              >
+                <span className="text-sm font-bold text-gray-500">
+                  {i + 1}
+                </span>
+                <Link
+                  href={`/dashboard/players/${entry.playerId}`}
+                  className="truncate text-sm font-medium hover:text-emerald-400 transition"
+                >
+                  {entry.nickname || entry.name}
+                </Link>
+                <span className="text-center text-sm">{entry.wins}</span>
+                <span className="text-center text-sm">{entry.podiums}</span>
+                <span className="text-center text-sm font-semibold text-emerald-400">
+                  {entry.totalPoints}
+                </span>
+                <span className="text-center text-xs text-gray-400">
+                  {entry.pointsPerSession}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-center text-xs text-gray-600">
+            W=Victorias · 🥉=Podios · Pts=Puntos · P/S=Puntos/Sesión
+          </p>
+        </section>
+      )}
+
+      {/* Rivalries */}
+      {rivalries.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Rivalidades
+          </h2>
+          <div className="space-y-2">
+            {rivalries.slice(0, 5).map((r, i) => {
+              const aName = r.playerA.nickname || r.playerA.name;
+              const bName = r.playerB.nickname || r.playerB.name;
+              const total = r.aWinsOverB + r.bWinsOverA;
+              const aPct = Math.round((r.aWinsOverB / total) * 100);
+              return (
+                <div
+                  key={i}
+                  className="rounded-lg bg-gray-900 px-4 py-3"
+                >
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="font-medium">{aName}</span>
+                    <span className="text-xs text-gray-500">
+                      {r.sharedSessions} mesas
+                    </span>
+                    <span className="font-medium">{bName}</span>
+                  </div>
+                  {/* Bar */}
+                  <div className="flex h-2 overflow-hidden rounded-full">
+                    <div
+                      className="bg-emerald-500"
+                      style={{ width: `${aPct}%` }}
+                    />
+                    <div
+                      className="bg-red-500"
+                      style={{ width: `${100 - aPct}%` }}
+                    />
+                  </div>
+                  <div className="mt-1 flex justify-between text-xs text-gray-500">
+                    <span>{r.aWinsOverB} victorias</span>
+                    <span>{r.bWinsOverA} victorias</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Advanced Stats Table */}
+      {advancedStats.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Stats Avanzados
+          </h2>
+          <div className="space-y-2">
+            {advancedStats
+              .sort((a, b) => a.positionDelta - b.positionDelta)
+              .map((s) => (
+                <div
+                  key={s.playerId}
+                  className="rounded-lg bg-gray-900 px-4 py-3"
+                >
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {s.nickname || s.name}
+                    </span>
+                    <span
+                      className={`text-xs font-bold ${
+                        s.positionDelta < 0
+                          ? "text-emerald-400"
+                          : s.positionDelta > 0
+                          ? "text-red-400"
+                          : "text-gray-400"
+                      }`}
+                    >
+                      {s.positionDelta > 0 ? "+" : ""}
+                      {s.positionDelta} vs expected
+                    </span>
+                  </div>
+                  <div className="flex gap-4 text-xs text-gray-500">
+                    <span>Vol: {s.volatility}</span>
+                    <span>🏆{s.timesFirst}</span>
+                    <span>🥈{s.timesSecond}</span>
+                    <span>💀{s.timesLast}</span>
+                    <span>🍺{s.drinksPerSession}/s</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
+
+      {/* Hand Stats */}
+      {handFunLabels.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Stats por Mano
+          </h2>
+          <div className="grid grid-cols-1 gap-2">
+            {handFunLabels.map((label, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3"
+              >
+                <span className="text-2xl">{label.emoji}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">
+                    {label.title}
+                  </p>
+                  <p className="truncate font-semibold text-white">
+                    {label.player}
+                  </p>
+                  <p className="text-xs text-gray-500">{label.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Hand Stats Table */}
+      {handStats.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            All-In Stats
+          </h2>
+          <div className="space-y-2">
+            {handStats
+              .filter((s) => s.allInCount > 0)
+              .sort((a, b) => b.allInCount - a.allInCount)
+              .map((s) => (
+                <div
+                  key={s.playerId}
+                  className="rounded-lg bg-gray-900 px-4 py-3"
+                >
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {s.nickname || s.name}
+                    </span>
+                    <span
+                      className={`text-xs font-bold ${
+                        s.allInSurvivalRate >= 70
+                          ? "text-emerald-400"
+                          : s.allInSurvivalRate >= 50
+                          ? "text-yellow-400"
+                          : "text-red-400"
+                      }`}
+                    >
+                      {s.allInSurvivalRate}% survival
+                    </span>
+                  </div>
+                  <div className="flex gap-4 text-xs text-gray-500">
+                    <span>All-ins: {s.allInCount}</span>
+                    <span>Ganó: {s.allInWon}</span>
+                    <span>Sobrevivió: {s.allInSurvived}</span>
+                    <span>Win rate: {s.winRate}%</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
+
+      {/* All Rankings */}
+      {totalSessions > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Todos los Rankings
+          </h2>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { id: "points", emoji: "🏆", title: "Puntos" },
+              { id: "points-per-session", emoji: "📈", title: "Eficiencia" },
+              { id: "wins", emoji: "👑", title: "Victorias" },
+              { id: "podiums", emoji: "🥉", title: "Podios" },
+              { id: "volatility", emoji: "🎰", title: "Volatilidad" },
+              { id: "consistency", emoji: "🧘", title: "Consistencia" },
+              { id: "hands-won", emoji: "🖐️", title: "Manos" },
+              { id: "win-rate", emoji: "🎯", title: "Win Rate" },
+              { id: "all-ins", emoji: "🤠", title: "All-Ins" },
+              { id: "all-in-survival", emoji: "🐊", title: "Survival" },
+              { id: "kills", emoji: "🗡️", title: "Kills" },
+              { id: "drinks", emoji: "🍺", title: "Cervezas" },
+              { id: "fold-rate", emoji: "🪑", title: "Fold Rate" },
+            ].map((stat) => (
+              <Link
+                key={stat.id}
+                href={`/dashboard/stats/${stat.id}`}
+                className="flex items-center gap-2 rounded-lg bg-gray-900 px-3 py-3 text-sm transition hover:bg-gray-800"
+              >
+                <span className="text-lg">{stat.emoji}</span>
+                <span className="text-gray-300">{stat.title}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Empty state */}
+      {totalSessions === 0 && (
+        <div className="rounded-xl bg-gray-900 p-8 text-center">
+          <p className="text-lg">🃏</p>
+          <p className="mt-2 text-gray-400">
+            No hay sesiones registradas todavía.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
