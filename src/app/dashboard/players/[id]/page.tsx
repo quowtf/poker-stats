@@ -1,4 +1,5 @@
 import { getPlayerProfile } from "@/lib/player-profile";
+import InfoTip from "../../InfoTip";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -30,7 +31,10 @@ export default async function PlayerProfilePage({
         <h1 className="text-3xl font-black">{displayName}</h1>
         <p className="mt-1 text-lg text-gray-400">{profile.style.name}</p>
         <p className="text-sm text-gray-500">{profile.style.description}</p>
-        <p className="mt-2 text-lg tracking-wider">{dangerFires}</p>
+        <p className="mt-2 text-lg tracking-wider">
+          {dangerFires}
+          <InfoTip text="Estilo = perfil de juego según cómo apuesta (agresivo, conservador, etc.). Nivel de peligro (🔥 de 1 a 5) combina win rate, eliminaciones y supervivencia en all-ins. Más 🔥 = rival más temible." />
+        </p>
       </div>
 
       {/* Relations */}
@@ -56,7 +60,10 @@ export default async function PlayerProfilePage({
           )}
           {profile.kryptonite && (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-400">🧿 Kryptonita</span>
+              <span className="text-sm text-gray-400">
+                🧿 Kryptonita
+                <InfoTip text="El jugador que le arruina la noche: cuando está en la mesa, su win rate se desploma. Su 'coco'. Distinto de una rivalidad pareja — esto es dominación de uno sobre otro." />
+              </span>
               <div className="text-right">
                 <span className="font-medium">{profile.kryptonite.nickname || profile.kryptonite.name}</span>
                 <p className="text-xs text-gray-500">{profile.kryptonite.detail}</p>
@@ -100,7 +107,9 @@ export default async function PlayerProfilePage({
           <StatCard label="A-I Won" value={profile.allInsWon} />
           <StatCard label="Survival" value={profile.allInSurvivalRate} suffix="%" />
           <StatCard label="Kills" value={profile.kills} />
-          <StatCard label="Clutch" value={profile.clutchFactor} suffix="%" />
+          {profile.sessionsPlayed >= 5 && (
+            <StatCard label="Clutch" value={profile.clutchFactor} suffix="%" />
+          )}
         </div>
       </section>
 
@@ -127,15 +136,17 @@ export default async function PlayerProfilePage({
       <section className="mb-6">
         <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Highlights</h2>
         <div className="space-y-2">
-          {/* Streak */}
-          <div className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-3">
-            <span className="text-sm text-gray-400">
-              {profile.currentStreak.type === "win" ? "🔥 Racha actual" : "🏜️ Sequía"}
-            </span>
-            <span className="font-bold">
-              {profile.currentStreak.count} sesiones {profile.currentStreak.type === "win" ? "ganando" : "sin ganar"}
-            </span>
-          </div>
+          {/* Streak — only meaningful with 2+ sessions in a row */}
+          {profile.currentStreak.count >= 2 && (
+            <div className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-3">
+              <span className="text-sm text-gray-400">
+                {profile.currentStreak.type === "win" ? "🔥 Racha actual" : "🏜️ Sequía"}
+              </span>
+              <span className="font-bold">
+                {profile.currentStreak.count} sesiones {profile.currentStreak.type === "win" ? "ganando" : "sin ganar"}
+              </span>
+            </div>
+          )}
 
           {/* Signature hand */}
           {profile.signatureHand && (

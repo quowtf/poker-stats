@@ -26,6 +26,9 @@ export type LeaderboardEntry = {
   averageFinish: number;
 };
 
+// Each beer drunk adds a tiny bonus to the leaderboard (just for fun)
+const BEER_POINT_VALUE = 0.01;
+
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const allResults = await db
     .select({
@@ -36,6 +39,15 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     })
     .from(sessionPlayers)
     .innerJoin(players, eq(sessionPlayers.playerId, players.id));
+
+  // Total beers per player (from hand_players)
+  const drinkRows = await db
+    .select({ playerId: handPlayers.playerId, drinks: handPlayers.drinks })
+    .from(handPlayers);
+  const beersByPlayer = new Map<string, number>();
+  for (const r of drinkRows) {
+    beersByPlayer.set(r.playerId, (beersByPlayer.get(r.playerId) || 0) + r.drinks);
+  }
 
   // Aggregate per player
   const statsMap = new Map<
@@ -67,10 +79,14 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     const sessionsPlayed = data.positions.length;
     const wins = data.positions.filter((p) => p === 1).length;
     const podiums = data.positions.filter((p) => p <= 3).length;
-    const totalPoints = data.positions.reduce(
+    const positionPointsTotal = data.positions.reduce(
       (sum, p) => sum + positionPoints(p),
       0
     );
+    // Beer bonus: 0.01 pts per beer
+    const beers = beersByPlayer.get(playerId) || 0;
+    const beerPoints = beers * BEER_POINT_VALUE;
+    const totalPoints = Math.round((positionPointsTotal + beerPoints) * 100) / 100;
     const averageFinish =
       data.positions.reduce((sum, p) => sum + p, 0) / sessionsPlayed;
 
@@ -493,7 +509,7 @@ export async function getFunLabels(): Promise<FunLabel[]> {
       emoji: "💀",
       title: "First Blood",
       player: firstBlood.nickname || firstBlood.name,
-      description: `${firstBlood.timesLast} veces último eliminado`,
+      description: `${firstBlood.timesLast} veces primer eliminado de la mesa`,
     });
   }
 
@@ -546,9 +562,9 @@ export async function getFunLabels(): Promise<FunLabel[]> {
   if (animal && animal.totalDrinks > 0) {
     labels.push({
       emoji: "🍺",
-      title: "El Animal",
+      title: "El Doble A",
       player: animal.nickname || animal.name,
-      description: `${animal.drinksPerSession} 🍺/sesión (${animal.totalDrinks} total)`,
+      description: `${animal.drinksPerSession} 🍺 / sesión (${animal.totalDrinks} total)`,
     });
   }
 

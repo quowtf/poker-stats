@@ -1,4 +1,5 @@
 import Link from "next/link";
+import InfoTip from "./InfoTip";
 import {
   getLeaderboard,
   getLastSession,
@@ -15,6 +16,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Trend/variance-based stats (volatility, consistency) need several sessions
+// before they mean anything. Below this threshold we hide them.
+const MIN_SESSIONS_FOR_TRENDS = 5;
+
 export default async function DashboardPage() {
   const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats, handTypeStats, sessionHistory] =
     await Promise.all([
@@ -30,6 +35,69 @@ export default async function DashboardPage() {
       getHandTypeStats(),
       getSessionHistory(),
     ]);
+
+  // ─── Build award groups for the unified "Galardones" block ──────────────
+
+  // Personalidad: fun labels (style, consistent, casino, streaks, etc.)
+  const personalidadAwards: Award[] = funLabels.map((l) => ({
+    emoji: l.emoji, title: l.title, player: l.player, description: l.description,
+  }));
+
+  // Manos: hand-based awards (survivor, sniper, etc.) + hand-type awards
+  const manosAwards: Award[] = [
+    ...handFunLabels.map((l) => ({
+      emoji: l.emoji, title: l.title, player: l.player, description: l.description,
+    })),
+  ];
+  if (handTypeStats.bestHand) {
+    manosAwards.push({
+      emoji: handTypeStats.bestHand.emoji,
+      title: "Mejor mano histórica",
+      player: `${handTypeStats.bestHand.label} · ${handTypeStats.bestHand.playerName}`,
+    });
+  }
+  if (handTypeStats.thief && handTypeStats.thief.weakWins > 0) {
+    manosAwards.push({
+      emoji: "🃏",
+      title: "El Ladrón",
+      player: handTypeStats.thief.nickname || handTypeStats.thief.name,
+      description: `${handTypeStats.thief.weakWins} manos ganadas con carta alta o par`,
+    });
+  }
+  if (handTypeStats.bigHands) {
+    manosAwards.push({
+      emoji: "💎",
+      title: "Manos Grandes",
+      player: handTypeStats.bigHands.nickname || handTypeStats.bigHands.name,
+      description: `Fuerza promedio ${handTypeStats.bigHands.avgStrength}/10`,
+    });
+  }
+
+  // Eliminaciones
+  const eliminacionesAwards: Award[] = [];
+  if (killStats.topKiller) {
+    eliminacionesAwards.push({
+      emoji: "🗡️", title: "El Asesino",
+      player: killStats.topKiller.nickname || killStats.topKiller.name,
+      description: `${killStats.topKiller.kills} eliminaciones totales`,
+    });
+  }
+  if (killStats.topVictim) {
+    eliminacionesAwards.push({
+      emoji: "🎯", title: "La Víctima",
+      player: killStats.topVictim.nickname || killStats.topVictim.name,
+      description: `Eliminado ${killStats.topVictim.times} veces por ${killStats.topVictim.killerNickname || killStats.topVictim.killerName}`,
+    });
+  }
+  if (killStats.topVillain) {
+    eliminacionesAwards.push({
+      emoji: "😈", title: "El Villano",
+      player: killStats.topVillain.nickname || killStats.topVillain.name,
+      description: `Ha eliminado al campeón ${killStats.topVillain.championsKilled} veces`,
+    });
+  }
+
+  const hasAwards = personalidadAwards.length > 0 || manosAwards.length > 0 || eliminacionesAwards.length > 0;
 
   return (
     <div className="mx-auto min-h-screen max-w-lg bg-gray-950 px-4 py-8 text-gray-100">
@@ -56,122 +124,20 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* Fun Labels */}
-      {funLabels.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Premios de la Mesa
-          </h2>
-          <div className="grid grid-cols-1 gap-2">
-            {funLabels.map((label, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3"
-              >
-                <span className="text-2xl">{label.emoji}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">
-                    {label.title}
-                  </p>
-                  <p className="truncate font-semibold text-white">
-                    {label.player}
-                  </p>
-                  <p className="text-xs text-gray-500">{label.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Kill Stats */}
-      {killStats.topKiller && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Eliminaciones
-          </h2>
-          <div className="grid grid-cols-1 gap-2">
-            {/* El Asesino */}
-            {killStats.topKiller && (
-              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-                <span className="text-2xl">🗡️</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">El Asesino</p>
-                  <p className="truncate font-semibold text-white">
-                    {killStats.topKiller.nickname || killStats.topKiller.name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {killStats.topKiller.kills} eliminaciones totales
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* La Víctima */}
-            {killStats.topVictim && (
-              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-                <span className="text-2xl">🎯</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">La Víctima</p>
-                  <p className="truncate font-semibold text-white">
-                    {killStats.topVictim.nickname || killStats.topVictim.name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Eliminado {killStats.topVictim.times} veces por {killStats.topVictim.killerNickname || killStats.topVictim.killerName}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* El Villano */}
-            {killStats.topVillain && (
-              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-                <span className="text-2xl">😈</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">El Villano</p>
-                  <p className="truncate font-semibold text-white">
-                    {killStats.topVillain.nickname || killStats.topVillain.name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Ha eliminado al campeón {killStats.topVillain.championsKilled} veces
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Kill Leaderboard */}
-            {killStats.killLeaderboard.length > 1 && (
-              <div className="rounded-lg bg-gray-900 px-4 py-3">
-                <p className="mb-2 text-sm font-medium text-gray-300">Kills Totales</p>
-                <div className="space-y-1">
-                  {killStats.killLeaderboard.slice(0, 5).map((k, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">
-                        {k.nickname || k.name}
-                      </span>
-                      <span className="font-bold text-red-400">{k.kills}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
       {/* Leaderboard */}
       {leaderboard.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
             Leaderboard
+            <InfoTip text="Ranking general por puntos acumulados. Cada sesión reparte puntos por posición final: 1º=10, 2º=7, 3º=5, 4º=3, 5º=2, 6º o menos=1. Además, cada cerveza suma 0.01 pts (puro chascarrillo). 🏆=mesas ganadas (veces en 1er lugar), 🥇🥈🥉=podios (veces en top 3), Pts=puntos totales, P/S=promedio de puntos por sesión (eficiencia)." />
           </h2>
           <div className="rounded-xl bg-gray-900">
             {/* Header */}
             <div className="grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 border-b border-gray-800 px-4 py-2 text-xs text-gray-500">
               <span>#</span>
               <span>Jugador</span>
-              <span className="text-center">W</span>
-              <span className="text-center">🥉</span>
+              <span className="text-center">🏆</span>
+              <span className="text-center text-[9px] leading-tight">🥇🥈🥉</span>
               <span className="text-center">Pts</span>
               <span className="text-center">P/S</span>
             </div>
@@ -206,8 +172,38 @@ export default async function DashboardPage() {
             ))}
           </div>
           <p className="mt-2 text-center text-xs text-gray-600">
-            W=Victorias · 🥉=Podios · Pts=Puntos · P/S=Puntos/Sesión
+            🏆=Mesas ganadas · 🥇🥈🥉=Podios (top 3) · Pts=Puntos totales · P/S=Puntos por sesión
           </p>
+        </section>
+      )}
+
+      {/* Galardones — unified awards block */}
+      {hasAwards && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            🏅 Galardones
+            <InfoTip text="Reconocimientos automáticos a los jugadores. Personalidad: estilo de juego, rachas, cervezas. Manos: desempeño mano a mano (all-ins, tipos de mano ganadora). Eliminaciones: quién saca a quién de la mesa. Aparecen más galardones conforme juegan más noches." />
+          </h2>
+          <AwardGroup subtitle="Personalidad" awards={personalidadAwards} />
+          <AwardGroup subtitle="Manos" awards={manosAwards} />
+          <AwardGroup subtitle="Eliminaciones" awards={eliminacionesAwards} />
+
+          {/* Kills leaderboard mini-table */}
+          {killStats.killLeaderboard.length > 1 && (
+            <div className="rounded-lg bg-gray-900 px-4 py-3">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600">
+                Kills Totales
+              </p>
+              <div className="space-y-1">
+                {killStats.killLeaderboard.slice(0, 5).map((k, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-400">{k.nickname || k.name}</span>
+                    <span className="font-bold text-red-400">{k.kills}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -216,6 +212,7 @@ export default async function DashboardPage() {
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
             Rivalidades
+            <InfoTip text="Duelos parejos: dos jugadores que se ganan mutuamente casi por igual cuando comparten mesa. La barra muestra quién termina arriba del otro más seguido. Distinto de la Kryptonita (que es dominación de uno sobre otro). Requiere al menos 5 mesas juntos." />
           </h2>
           <div className="space-y-2">
             {rivalries.slice(0, 5).map((r, i) => {
@@ -262,6 +259,7 @@ export default async function DashboardPage() {
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
             Stats Avanzados
+            <InfoTip text="'vs expected' = qué tan bien juega alguien contra el azar puro. Con 8 en la mesa, el promedio esperado es 4.5º. Verde (negativo) = termina MEJOR de lo esperado. Rojo (positivo) = peor. Vol (volatilidad) = qué tan impredecible: bajo = siempre parecido, alto = o gana o se hunde. 🏆 veces 1º, 🥈 veces 2º, 💀 veces último, 🍺 cervezas por sesión." />
           </h2>
           <div className="space-y-2">
             {advancedStats
@@ -289,7 +287,9 @@ export default async function DashboardPage() {
                     </span>
                   </div>
                   <div className="flex gap-4 text-xs text-gray-500">
-                    <span>Vol: {s.volatility}</span>
+                    {totalSessions >= MIN_SESSIONS_FOR_TRENDS && (
+                      <span>Vol: {s.volatility}</span>
+                    )}
                     <span>🏆{s.timesFirst}</span>
                     <span>🥈{s.timesSecond}</span>
                     <span>💀{s.timesLast}</span>
@@ -301,39 +301,12 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* Hand Stats */}
-      {handFunLabels.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Stats por Mano
-          </h2>
-          <div className="grid grid-cols-1 gap-2">
-            {handFunLabels.map((label, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3"
-              >
-                <span className="text-2xl">{label.emoji}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">
-                    {label.title}
-                  </p>
-                  <p className="truncate font-semibold text-white">
-                    {label.player}
-                  </p>
-                  <p className="text-xs text-gray-500">{label.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Hand Stats Table */}
       {handStats.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
             All-In Stats
+            <InfoTip text="Todo sobre apostar todas las fichas. All-ins = cuántas veces lo hizo. Ganó = cuántos ganó. Sobrevivió = cuántos no lo eliminaron. Survival % = qué tan seguido sale vivo de un all-in (verde ≥70%, rojo <50%). Win rate = % de manos ganadas en general." />
           </h2>
           <div className="space-y-2">
             {handStats
@@ -377,54 +350,11 @@ export default async function DashboardPage() {
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
             Manos Ganadoras
+            <InfoTip text="Con qué tipo de mano se ganan los botes en la liga. La barra muestra qué tan seguido gana cada tipo de mano (par es lo más común, escalera real casi nunca)." />
           </h2>
-
-          {/* Highlights */}
-          <div className="grid grid-cols-1 gap-2 mb-3">
-            {handTypeStats.bestHand && (
-              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-                <span className="text-2xl">{handTypeStats.bestHand.emoji}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">Mejor mano histórica</p>
-                  <p className="truncate font-semibold text-white">
-                    {handTypeStats.bestHand.label} · {handTypeStats.bestHand.playerName}
-                  </p>
-                </div>
-              </div>
-            )}
-            {handTypeStats.thief && handTypeStats.thief.weakWins > 0 && (
-              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-                <span className="text-2xl">🃏</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">El Ladrón</p>
-                  <p className="truncate font-semibold text-white">
-                    {handTypeStats.thief.nickname || handTypeStats.thief.name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {handTypeStats.thief.weakWins} manos ganadas con carta alta o par
-                  </p>
-                </div>
-              </div>
-            )}
-            {handTypeStats.bigHands && (
-              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-                <span className="text-2xl">💎</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-300">Manos Grandes</p>
-                  <p className="truncate font-semibold text-white">
-                    {handTypeStats.bigHands.nickname || handTypeStats.bigHands.name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Fuerza promedio {handTypeStats.bigHands.avgStrength}/10
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Distribution */}
           <div className="rounded-lg bg-gray-900 px-4 py-3">
-            <p className="mb-2 text-sm font-medium text-gray-300">Distribución</p>
             <div className="space-y-1">
               {handTypeStats.distribution.map((d) => {
                 const max = handTypeStats.distribution[0].count;
@@ -490,8 +420,13 @@ export default async function DashboardPage() {
               { id: "points-per-session", emoji: "📈", title: "Eficiencia" },
               { id: "wins", emoji: "👑", title: "Victorias" },
               { id: "podiums", emoji: "🥉", title: "Podios" },
-              { id: "volatility", emoji: "🎰", title: "Volatilidad" },
-              { id: "consistency", emoji: "🧘", title: "Consistencia" },
+              // Trend-based rankings need several sessions to be meaningful
+              ...(totalSessions >= MIN_SESSIONS_FOR_TRENDS
+                ? [
+                    { id: "volatility", emoji: "🎰", title: "Volatilidad" },
+                    { id: "consistency", emoji: "🧘", title: "Consistencia" },
+                  ]
+                : []),
               { id: "hands-won", emoji: "🖐️", title: "Manos" },
               { id: "win-rate", emoji: "🎯", title: "Win Rate" },
               { id: "all-ins", emoji: "🤠", title: "All-Ins" },
@@ -522,6 +457,41 @@ export default async function DashboardPage() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Award Components ────────────────────────────────────────────────────────
+
+type Award = { emoji: string; title: string; player: string; description?: string };
+
+function AwardCard({ award }: { award: Award }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+      <span className="text-2xl">{award.emoji}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-gray-300">{award.title}</p>
+        <p className="truncate font-semibold text-white">{award.player}</p>
+        {award.description && (
+          <p className="text-xs text-gray-500">{award.description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AwardGroup({ subtitle, awards }: { subtitle: string; awards: Award[] }) {
+  if (awards.length === 0) return null;
+  return (
+    <div className="mb-4">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600">
+        {subtitle}
+      </p>
+      <div className="grid grid-cols-1 gap-2">
+        {awards.map((a, i) => (
+          <AwardCard key={i} award={a} />
+        ))}
+      </div>
     </div>
   );
 }

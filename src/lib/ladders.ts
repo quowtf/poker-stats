@@ -79,11 +79,20 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
       e.sessions++;
       map.set(r.playerId, e);
     }
+    // Beer bonus: 0.01 pts per beer
+    const beerRows = await getHandData();
+    const beers = new Map<string, number>();
+    for (const r of beerRows) {
+      beers.set(r.playerId, (beers.get(r.playerId) || 0) + r.drinks);
+    }
     const entries = [...map.entries()]
-      .map(([id, d]) => ({ playerId: id, name: d.name, nickname: d.nickname, value: d.points, detail: `${d.sessions} sesiones` }))
+      .map(([id, d]) => {
+        const total = Math.round((d.points + (beers.get(id) || 0) * 0.01) * 100) / 100;
+        return { playerId: id, name: d.name, nickname: d.nickname, value: total, detail: `${d.sessions} sesiones · ${beers.get(id) || 0}🍺` };
+      })
       .sort((a, b) => b.value - a.value)
       .map((e, i) => ({ ...e, rank: i + 1 }));
-    return { statId: "points", title: "Puntos Totales", emoji: "🏆", description: "Sistema: 1º=10, 2º=7, 3º=5, 4º=3, 5º=2, 6º+=1", unit: "pts", entries };
+    return { statId: "points", title: "Puntos Totales", emoji: "🏆", description: "Posición: 1º=10, 2º=7, 3º=5, 4º=3, 5º=2, 6º+=1. Cada 🍺 suma 0.01 pts.", unit: "pts", entries };
   },
 
   "points-per-session": async () => {
