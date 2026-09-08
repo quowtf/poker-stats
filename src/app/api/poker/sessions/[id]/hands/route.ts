@@ -85,7 +85,7 @@ export async function POST(
       );
     }
 
-    const { players: handPlayersInput, dealerId, sbId } = parsed.data;
+    const { players: handPlayersInput, dealerId, sbId, winningHandType } = parsed.data;
 
     // Get next hand number
     const [countResult] = await db
@@ -103,6 +103,7 @@ export async function POST(
         handNumber,
         dealerId: dealerId ?? null,
         sbId: sbId ?? null,
+        winningHandType: winningHandType ?? null,
       })
       .returning();
 

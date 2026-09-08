@@ -4,6 +4,19 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
+const HAND_TYPES = [
+  { id: "high_card", label: "Carta Alta", emoji: "🃏" },
+  { id: "pair", label: "Par", emoji: "✌️" },
+  { id: "two_pair", label: "Doble Par", emoji: "👥" },
+  { id: "three_of_a_kind", label: "Tercia", emoji: "3️⃣" },
+  { id: "straight", label: "Escalera", emoji: "📈" },
+  { id: "flush", label: "Color", emoji: "🎨" },
+  { id: "full_house", label: "Full", emoji: "🏠" },
+  { id: "four_of_a_kind", label: "Póker", emoji: "🍀" },
+  { id: "straight_flush", label: "Esc. Color", emoji: "🌈" },
+  { id: "royal_flush", label: "Esc. Real", emoji: "👑" },
+];
+
 type SessionPlayer = {
   playerId: string;
   playerName: string;
@@ -42,7 +55,8 @@ export default function HandsPage() {
   const [success, setSuccess] = useState("");
   const [showSubstitute, setShowSubstitute] = useState(false);
   const [substituteTarget, setSubstituteTarget] = useState<string | null>(null);
-  const [editingHand, setEditingHand] = useState<number | null>(null); // handNumber being edited
+  const [editingHand, setEditingHand] = useState<number | null>(null);
+  const [winningHandType, setWinningHandType] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -238,6 +252,7 @@ export default function HandsPage() {
     const body = {
       dealerId: dealerPlayer?.playerId || null,
       sbId: sbPlayer?.playerId || null,
+      winningHandType,
       players: playerStates
         .filter((p) => !p.isOut)
         .map((p) => ({
@@ -288,6 +303,7 @@ export default function HandsPage() {
           };
         })
       );
+      setWinningHandType(null);
 
       setSuccess(`Mano #${newHandNum} guardada ✓`);
       setTimeout(() => setSuccess(""), 2000);
@@ -380,6 +396,7 @@ export default function HandsPage() {
     const body = {
       dealerId: dealerPlayer?.playerId || null,
       sbId: sbPlayer?.playerId || null,
+      winningHandType,
       players: playerStates
         .filter((p) => !p.isOut)
         .map((p) => ({
@@ -628,6 +645,31 @@ export default function HandsPage() {
           );
         })}
       </div>
+
+      {/* Winning hand type selector — shows when a winner is marked */}
+      {playerStates.some((p) => p.won && !p.isOut) && (
+        <div className="rounded-lg bg-gray-900 p-3">
+          <p className="mb-2 text-xs text-gray-400">
+            🏆 {playerStates.find((p) => p.won)?.name} ganó con:
+          </p>
+          <div className="grid grid-cols-5 gap-1">
+            {HAND_TYPES.map((ht) => (
+              <button
+                key={ht.id}
+                onClick={() => setWinningHandType(winningHandType === ht.id ? null : ht.id)}
+                className={`flex flex-col items-center rounded-md py-2 text-[10px] transition active:scale-90 ${
+                  winningHandType === ht.id
+                    ? "bg-emerald-600 text-white"
+                    : "bg-gray-800 text-gray-400"
+                }`}
+              >
+                <span className="text-base">{ht.emoji}</span>
+                <span className="leading-tight text-center">{ht.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Eliminated players — tap to substitute */}
       {eliminatedPlayers.length > 0 && (

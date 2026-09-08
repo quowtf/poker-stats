@@ -9,12 +9,13 @@ import {
   getHandStats,
   getHandFunLabels,
   getKillStats,
+  getHandTypeStats,
 } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats] =
+  const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats, handTypeStats] =
     await Promise.all([
       getLeaderboard(),
       getLastSession(),
@@ -25,6 +26,7 @@ export default async function DashboardPage() {
       getHandStats(),
       getHandFunLabels(),
       getKillStats(),
+      getHandTypeStats(),
     ]);
 
   return (
@@ -393,6 +395,78 @@ export default async function DashboardPage() {
                   </div>
                 </div>
               ))}
+          </div>
+        </section>
+      )}
+
+      {/* Winning Hand Types */}
+      {handTypeStats.distribution.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Manos Ganadoras
+          </h2>
+
+          {/* Highlights */}
+          <div className="grid grid-cols-1 gap-2 mb-3">
+            {handTypeStats.bestHand && (
+              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+                <span className="text-2xl">{handTypeStats.bestHand.emoji}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">Mejor mano histórica</p>
+                  <p className="truncate font-semibold text-white">
+                    {handTypeStats.bestHand.label} · {handTypeStats.bestHand.playerName}
+                  </p>
+                </div>
+              </div>
+            )}
+            {handTypeStats.thief && handTypeStats.thief.weakWins > 0 && (
+              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+                <span className="text-2xl">🃏</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">El Ladrón</p>
+                  <p className="truncate font-semibold text-white">
+                    {handTypeStats.thief.nickname || handTypeStats.thief.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {handTypeStats.thief.weakWins} manos ganadas con carta alta o par
+                  </p>
+                </div>
+              </div>
+            )}
+            {handTypeStats.bigHands && (
+              <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
+                <span className="text-2xl">💎</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-300">Manos Grandes</p>
+                  <p className="truncate font-semibold text-white">
+                    {handTypeStats.bigHands.nickname || handTypeStats.bigHands.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Fuerza promedio {handTypeStats.bigHands.avgStrength}/10
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Distribution */}
+          <div className="rounded-lg bg-gray-900 px-4 py-3">
+            <p className="mb-2 text-sm font-medium text-gray-300">Distribución</p>
+            <div className="space-y-1">
+              {handTypeStats.distribution.map((d) => {
+                const max = handTypeStats.distribution[0].count;
+                const pct = Math.round((d.count / max) * 100);
+                return (
+                  <div key={d.type} className="flex items-center gap-2 text-xs">
+                    <span className="w-28 text-gray-400">{d.emoji} {d.label}</span>
+                    <div className="flex-1 h-3 rounded-full bg-gray-800 overflow-hidden">
+                      <div className="h-full bg-emerald-600" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-6 text-right text-gray-400">{d.count}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
       )}

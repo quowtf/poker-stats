@@ -6,6 +6,7 @@ import {
   hands,
   handPlayers,
   substitutions,
+  HAND_TYPE_LABELS,
 } from "@/db/schema";
 import { eq, asc, and } from "drizzle-orm";
 
@@ -67,6 +68,9 @@ export type PlayerProfile = {
   bestComeback: { allIns: number; position: number } | null; // session with most all-ins survived + good finish
   drinkStats: { total: number; perSession: number; winRateSober: number; winRateDrunk: number };
   currentStreak: { type: "win" | "loss"; count: number };
+
+  // Signature winning hand
+  signatureHand: { label: string; emoji: string; count: number } | null;
 
   // Badges
   badges: { emoji: string; title: string; detail: string }[];
@@ -344,6 +348,28 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
     }
   }
 
+  // ─── Signature winning hand ─────────────────────────────────────────────
+
+  const wonHandTypes = await db
+    .select({ winningHandType: hands.winningHandType })
+    .from(handPlayers)
+    .innerJoin(hands, eq(handPlayers.handId, hands.id))
+    .where(and(eq(handPlayers.playerId, playerId), eq(handPlayers.won, true)));
+
+  const typeCounts = new Map<string, number>();
+  for (const r of wonHandTypes) {
+    if (r.winningHandType) typeCounts.set(r.winningHandType, (typeCounts.get(r.winningHandType) || 0) + 1);
+  }
+  let signatureHand: PlayerProfile["signatureHand"] = null;
+  if (typeCounts.size > 0) {
+    const [sigType, count] = [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    signatureHand = {
+      label: HAND_TYPE_LABELS[sigType]?.es || sigType,
+      emoji: HAND_TYPE_LABELS[sigType]?.emoji || "🃏",
+      count,
+    };
+  }
+
   // ─── Style classification ───────────────────────────────────────────────
 
   const style = classifyStyle(foldRate, allIns, handsPlayed, allInSurvivalRate, handWinRate, kills);
@@ -390,6 +416,7 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
     bestComeback,
     drinkStats: { total: totalDrinks, perSession: drinksPerSession, winRateSober, winRateDrunk },
     currentStreak,
+    signatureHand,
     badges,
     timesRevived,
     revivedBy,

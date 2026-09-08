@@ -950,3 +950,139 @@ export async function getKillStats(): Promise<KillStats> {
     topRivalryKill,
   };
 }
+
+// ─── Winning Hand Type Stats ─────────────────────────────────────────────────
+
+import { HAND_TYPE_STRENGTH, HAND_TYPE_LABELS } from "@/db/schema";
+
+export type HandTypeStats = {
+  // Distribution: how many times each hand type won overall
+  distribution: { type: string; label: string; emoji: string; count: number }[];
+  // Most common winning hand
+  mostCommon: { type: string; label: string; emoji: string; count: number } | null;
+  // Best hand ever recorded (strongest type + who + when)
+  bestHand: { type: string; label: string; emoji: string; playerName: string; playedAt: string } | null;
+  // Per-player signature hand (most frequent winning type)
+  signatures: { playerId: string; name: string; nickname: string | null; type: string; label: string; emoji: string; count: number }[];
+  // "El Ladrón" — most wins with weak hands (high_card or pair)
+  thief: { name: string; nickname: string | null; weakWins: number } | null;
+  // "Manos Grandes" — highest avg hand strength (min 5 typed wins)
+  bigHands: { name: string; nickname: string | null; avgStrength: number } | null;
+};
+
+export async function getHandTypeStats(): Promise<HandTypeStats> {
+  const rows = await db
+    .select({
+      winningHandType: hands.winningHandType,
+      playedAt: sessions.playedAt,
+    })
+    .from(hands)
+    .innerJoin(sessions, eq(hands.sessionId, sessions.id));
+
+  const typed = rows.filter((r) => r.winningHandType !== null);
+
+  if (typed.length === 0) {
+    return { distribution: [], mostCommon: null, bestHand: null, signatures: [], thief: null, bigHands: null };
+  }
+
+  // Distribution
+  const distMap = new Map<string, number>();
+  for (const r of typed) {
+    distMap.set(r.winningHandType!, (distMap.get(r.winningHandType!) || 0) + 1);
+  }
+  const distribution = [...distMap.entries()]
+    .map(([type, count]) => ({
+      type,
+      label: HAND_TYPE_LABELS[type]?.es || type,
+      emoji: HAND_TYPE_LABELS[type]?.emoji || "🃏",
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const mostCommon = distribution[0] || null;
+
+  // Best hand: need winner per hand. Query winner + hand type.
+  const winnerRows = await db
+    .select({
+      handId: hands.id,
+      winningHandType: hands.winningHandType,
+      playedAt: sessions.playedAt,
+      playerId: handPlayers.playerId,
+      playerName: players.name,
+      playerNickname: players.nickname,
+      won: handPlayers.won,
+    })
+    .from(hands)
+    .innerJoin(sessions, eq(hands.sessionId, sessions.id))
+    .innerJoin(handPlayers, eq(handPlayers.handId, hands.id))
+    .innerJoin(players, eq(handPlayers.playerId, players.id));
+
+  const winnerTyped = winnerRows.filter((r) => r.won && r.winningHandType !== null);
+
+  // Best hand overall
+  let bestHand: HandTypeStats["bestHand"] = null;
+  let bestStrength = 0;
+  for (const r of winnerTyped) {
+    const strength = HAND_TYPE_STRENGTH[r.winningHandType!] || 0;
+    if (strength > bestStrength) {
+      bestStrength = strength;
+      bestHand = {
+        type: r.winningHandType!,
+        label: HAND_TYPE_LABELS[r.winningHandType!]?.es || r.winningHandType!,
+        emoji: HAND_TYPE_LABELS[r.winningHandType!]?.emoji || "🃏",
+        playerName: r.playerNickname || r.playerName,
+        playedAt: r.playedAt,
+      };
+    }
+  }
+
+  // Per-player: signature + thief + big hands
+  const playerHands = new Map<string, { name: string; nickname: string | null; types: string[] }>();
+  for (const r of winnerTyped) {
+    const e = playerHands.get(r.playerId) || { name: r.playerName, nickname: r.playerNickname, types: [] };
+    e.types.push(r.winningHandType!);
+    playerHands.set(r.playerId, e);
+  }
+
+  const signatures: HandTypeStats["signatures"] = [];
+  let thief: HandTypeStats["thief"] = null;
+  let maxWeakWins = 0;
+  let bigHands: HandTypeStats["bigHands"] = null;
+  let maxAvgStrength = 0;
+
+  for (const [playerId, data] of playerHands) {
+    // Signature (most frequent type)
+    const typeCounts = new Map<string, number>();
+    for (const t of data.types) typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+    const [sigType, sigCount] = [...typeCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    signatures.push({
+      playerId,
+      name: data.name,
+      nickname: data.nickname,
+      type: sigType,
+      label: HAND_TYPE_LABELS[sigType]?.es || sigType,
+      emoji: HAND_TYPE_LABELS[sigType]?.emoji || "🃏",
+      count: sigCount,
+    });
+
+    // Thief (weak wins: high_card + pair)
+    const weakWins = data.types.filter((t) => t === "high_card" || t === "pair").length;
+    if (weakWins > maxWeakWins) {
+      maxWeakWins = weakWins;
+      thief = { name: data.name, nickname: data.nickname, weakWins };
+    }
+
+    // Big hands (avg strength, min 5 typed wins)
+    if (data.types.length >= 5) {
+      const avgStrength = data.types.reduce((s, t) => s + (HAND_TYPE_STRENGTH[t] || 0), 0) / data.types.length;
+      if (avgStrength > maxAvgStrength) {
+        maxAvgStrength = avgStrength;
+        bigHands = { name: data.name, nickname: data.nickname, avgStrength: Math.round(avgStrength * 10) / 10 };
+      }
+    }
+  }
+
+  signatures.sort((a, b) => b.count - a.count);
+
+  return { distribution, mostCommon, bestHand, signatures, thief, bigHands };
+}

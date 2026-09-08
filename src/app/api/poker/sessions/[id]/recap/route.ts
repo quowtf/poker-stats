@@ -27,7 +27,7 @@ export async function GET(
 
     // All hands ordered
     const allHands = await db
-      .select({ id: hands.id, handNumber: hands.handNumber, dealerId: hands.dealerId, sbId: hands.sbId })
+      .select({ id: hands.id, handNumber: hands.handNumber, dealerId: hands.dealerId, sbId: hands.sbId, winningHandType: hands.winningHandType })
       .from(hands)
       .where(eq(hands.sessionId, sessionId))
       .orderBy(asc(hands.handNumber));
@@ -63,14 +63,100 @@ export async function GET(
     const eliminatedAtHand: Record<string, number> = {};
     const allInAtHands: { playerId: string; handNumber: number }[] = [];
 
+    // Stacked chart data
+    // Mode "wins": each player's band = cumulative wins (dominance grows)
+    // Mode "survival": each player's band = 1 while alive, 0 after elimination (bands vanish, AoE2-style)
+    const winsSeries: { handNumber: number; values: Record<string, number> }[] = [];
+    const survivalSeries: { handNumber: number; values: Record<string, number> }[] = [];
+
+    // Determine elimination hand per player first
+    const elimHandMap: Record<string, number> = {};
     for (const hand of allHands) {
       const hps = allHP.filter((hp) => hp.handId === hand.id);
       for (const hp of hps) {
-        if (hp.won) cumulativeWins[hp.playerId] = (cumulativeWins[hp.playerId] || 0) + 1;
-        if (hp.eliminated) eliminatedAtHand[hp.playerId] = hand.handNumber;
-        if (hp.wentAllIn) allInAtHands.push({ playerId: hp.playerId, handNumber: hand.handNumber });
+        if (hp.eliminated && elimHandMap[hp.playerId] === undefined) {
+          elimHandMap[hp.playerId] = hand.handNumber;
+        }
+      }
+    }
+
+    // Events for markers
+    type ChartEvent = {
+      handNumber: number;
+      playerId: string;
+      playerName: string;
+      type: "allin_win" | "allin_survive" | "elimination" | "strong_hand" | "leader_change";
+      emoji: string;
+      label: string;
+    };
+    const events: ChartEvent[] = [];
+
+    const strongHands = ["full_house", "four_of_a_kind", "straight_flush", "royal_flush"];
+    let prevLeader: string | null = null;
+
+    for (const hand of allHands) {
+      const hps = allHP.filter((hp) => hp.handId === hand.id);
+      for (const hp of hps) {
+        const pName = playerList.find((p) => p.id === hp.playerId)?.name || "?";
+        if (hp.won) {
+          cumulativeWins[hp.playerId] = (cumulativeWins[hp.playerId] || 0) + 1;
+          // Strong hand marker
+          if (hand.winningHandType && strongHands.includes(hand.winningHandType)) {
+            const labels: Record<string, string> = {
+              full_house: "Full", four_of_a_kind: "Póker", straight_flush: "Esc. Color", royal_flush: "Esc. Real",
+            };
+            const emojis: Record<string, string> = {
+              full_house: "🏠", four_of_a_kind: "🍀", straight_flush: "🌈", royal_flush: "👑",
+            };
+            events.push({
+              handNumber: hand.handNumber, playerId: hp.playerId, playerName: pName,
+              type: "strong_hand", emoji: emojis[hand.winningHandType] || "💎",
+              label: `${pName} gana con ${labels[hand.winningHandType] || "mano fuerte"}`,
+            });
+          }
+        }
+        if (hp.eliminated) {
+          eliminatedAtHand[hp.playerId] = hand.handNumber;
+          events.push({
+            handNumber: hand.handNumber, playerId: hp.playerId, playerName: pName,
+            type: "elimination", emoji: "💀", label: `${pName} eliminado`,
+          });
+        }
+        if (hp.wentAllIn) {
+          allInAtHands.push({ playerId: hp.playerId, handNumber: hand.handNumber });
+          if (!hp.eliminated) {
+            events.push({
+              handNumber: hand.handNumber, playerId: hp.playerId, playerName: pName,
+              type: hp.won ? "allin_win" : "allin_survive",
+              emoji: hp.won ? "🐊" : "⚔️",
+              label: hp.won ? `${pName} all-in y gana` : `${pName} all-in y sobrevive`,
+            });
+          }
+        }
       }
       raceData.push({ handNumber: hand.handNumber, wins: { ...cumulativeWins } });
+      winsSeries.push({ handNumber: hand.handNumber, values: { ...cumulativeWins } });
+
+      // Survival: 1 if alive at this hand, else 0
+      const survivalValues: Record<string, number> = {};
+      for (const p of playerList) {
+        const elim = elimHandMap[p.id];
+        survivalValues[p.id] = elim !== undefined && hand.handNumber > elim ? 0 : 1;
+      }
+      survivalSeries.push({ handNumber: hand.handNumber, values: survivalValues });
+
+      // Leader change marker
+      const leaderEntry = Object.entries(cumulativeWins).sort((a, b) => b[1] - a[1])[0];
+      if (leaderEntry && leaderEntry[1] > 0 && leaderEntry[0] !== prevLeader) {
+        const lName = playerList.find((p) => p.id === leaderEntry[0])?.name || "?";
+        if (prevLeader !== null) {
+          events.push({
+            handNumber: hand.handNumber, playerId: leaderEntry[0], playerName: lName,
+            type: "leader_change", emoji: "👑", label: `${lName} toma el liderato`,
+          });
+        }
+        prevLeader = leaderEntry[0];
+      }
     }
 
     // MVPs
@@ -160,6 +246,9 @@ export async function GET(
       },
       players: playerList,
       raceData,
+      winsSeries,
+      survivalSeries,
+      events,
       eliminatedAtHand,
       allInAtHands,
       mvps: mvps.filter((m) => m.value > 0),

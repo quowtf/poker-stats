@@ -13,6 +13,46 @@ import {
 
 export const roleEnum = pgEnum("user_role", ["admin", "viewer"]);
 
+// Poker hand rankings, ordered weakest → strongest (index = strength)
+export const handTypeEnum = pgEnum("hand_type", [
+  "high_card",       // carta alta
+  "pair",            // par
+  "two_pair",        // doble par
+  "three_of_a_kind", // tercia
+  "straight",        // escalera
+  "flush",           // color
+  "full_house",      // full
+  "four_of_a_kind",  // póker
+  "straight_flush",  // escalera de color
+  "royal_flush",     // escalera real
+]);
+
+export const HAND_TYPE_STRENGTH: Record<string, number> = {
+  high_card: 1,
+  pair: 2,
+  two_pair: 3,
+  three_of_a_kind: 4,
+  straight: 5,
+  flush: 6,
+  full_house: 7,
+  four_of_a_kind: 8,
+  straight_flush: 9,
+  royal_flush: 10,
+};
+
+export const HAND_TYPE_LABELS: Record<string, { es: string; emoji: string }> = {
+  high_card: { es: "Carta Alta", emoji: "🃏" },
+  pair: { es: "Par", emoji: "✌️" },
+  two_pair: { es: "Doble Par", emoji: "👥" },
+  three_of_a_kind: { es: "Tercia", emoji: "3️⃣" },
+  straight: { es: "Escalera", emoji: "📈" },
+  flush: { es: "Color", emoji: "🎨" },
+  full_house: { es: "Full", emoji: "🏠" },
+  four_of_a_kind: { es: "Póker", emoji: "🍀" },
+  straight_flush: { es: "Escalera de Color", emoji: "🌈" },
+  royal_flush: { es: "Escalera Real", emoji: "👑" },
+};
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -72,6 +112,7 @@ export const hands = pgTable("hands", {
   handNumber: integer("hand_number").notNull(),
   dealerId: uuid("dealer_id").references(() => players.id, { onDelete: "restrict" }),
   sbId: uuid("sb_id").references(() => players.id, { onDelete: "restrict" }),
+  winningHandType: handTypeEnum("winning_hand_type"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

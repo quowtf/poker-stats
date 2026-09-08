@@ -66,10 +66,16 @@ export const handPlayerInput = z.object({
   drinks: z.number().int().min(0).default(0),
 });
 
+export const handTypeValues = [
+  "high_card", "pair", "two_pair", "three_of_a_kind", "straight",
+  "flush", "full_house", "four_of_a_kind", "straight_flush", "royal_flush",
+] as const;
+
 export const createHandSchema = z
   .object({
     dealerId: z.string().uuid().nullable().optional(),
     sbId: z.string().uuid().nullable().optional(),
+    winningHandType: z.enum(handTypeValues).nullable().optional(),
     players: z
       .array(handPlayerInput)
       .min(2, "Minimum 2 players in a hand"),

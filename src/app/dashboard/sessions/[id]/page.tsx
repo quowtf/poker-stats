@@ -14,13 +14,26 @@ import {
   Legend,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
+import StackedChart from "./StackedChart";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+
+type ChartEvent = {
+  handNumber: number;
+  playerId: string;
+  playerName: string;
+  type: "allin_win" | "allin_survive" | "elimination" | "strong_hand" | "leader_change";
+  emoji: string;
+  label: string;
+};
 
 type RecapData = {
   session: { id: string; playedAt: string; playerCount: number; totalHands: number };
   players: { id: string; name: string; color: string; finishPosition: number | null }[];
   raceData: { handNumber: number; wins: Record<string, number> }[];
+  winsSeries: { handNumber: number; values: Record<string, number> }[];
+  survivalSeries: { handNumber: number; values: Record<string, number> }[];
+  events: ChartEvent[];
   eliminatedAtHand: Record<string, number>;
   allInAtHands: { playerId: string; handNumber: number }[];
   mvps: { emoji: string; title: string; player: string; value: number }[];
@@ -94,9 +107,20 @@ export default function SessionRecapPage() {
         <p className="text-gray-400">Ganador · {data.session.totalHands} manos · {data.session.playerCount} jugadores</p>
       </div>
 
-      {/* Race Chart */}
+      {/* Stacked Chart (primary — AoE2 style) */}
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Carrera de la noche</h2>
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">La Noche en Gráfica</h2>
+        <StackedChart
+          players={data.players}
+          winsSeries={data.winsSeries}
+          survivalSeries={data.survivalSeries}
+          events={data.events}
+        />
+      </section>
+
+      {/* Race Chart (secondary — line) */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Carrera de Victorias</h2>
         <div className="rounded-xl bg-gray-900 p-4" style={{ height: "320px" }}>
           <Line data={chartData} options={chartOptions} />
         </div>
