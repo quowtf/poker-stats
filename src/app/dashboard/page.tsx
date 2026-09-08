@@ -535,12 +535,6 @@ type PodiumPlayer = {
   finishPosition: number | null;
 };
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 function Podium({ players }: { players: PodiumPlayer[] }) {
   const sorted = [...players].sort(
     (a, b) => (a.finishPosition ?? 99) - (b.finishPosition ?? 99)
@@ -550,94 +544,97 @@ function Podium({ players }: { players: PodiumPlayer[] }) {
   const third = sorted.find((p) => p.finishPosition === 3);
   const rest = sorted.filter((p) => (p.finishPosition ?? 99) > 3);
 
-  const Avatar = ({
+  const Spot = ({
     player,
-    size,
-    ring,
-    label,
+    emoji,
+    emojiSize,
+    nameColor,
+    pedestalH,
+    pedestalBg,
+    numColor,
+    num,
   }: {
     player: PodiumPlayer;
-    size: string;
-    ring: string;
-    label: string;
+    emoji: string;
+    emojiSize: string;
+    nameColor: string;
+    pedestalH: string;
+    pedestalBg: string;
+    numColor: string;
+    num: number;
   }) => (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-2xl leading-none">{label}</span>
-      <div
-        className={`flex items-center justify-center rounded-full font-black text-black shadow-lg ${size} ${ring}`}
+    <div className="flex flex-1 flex-col items-center">
+      <span className={`${emojiSize} leading-none`}>{emoji}</span>
+      <span
+        className={`mt-1 w-full truncate px-1 text-center text-sm font-semibold ${nameColor}`}
+        title={player.nickname || player.name}
       >
-        {initials(player.nickname || player.name)}
-      </div>
-      <span className="max-w-[90px] truncate text-center text-sm font-semibold text-white">
         {player.nickname || player.name}
       </span>
+      <div
+        className={`mt-2 flex w-full items-start justify-center rounded-t-lg pt-2 text-2xl font-black ${pedestalH} ${pedestalBg} ${numColor}`}
+      >
+        {num}
+      </div>
     </div>
   );
 
   return (
     <div className="rounded-xl bg-gradient-to-b from-gray-900 to-gray-950 p-5">
       {/* Podium top 3 */}
-      <div className="flex items-end justify-center gap-3">
+      <div className="flex items-end justify-center gap-2">
         {/* 2nd */}
-        <div className="flex flex-1 flex-col items-center">
-          {second && (
-            <Avatar
-              player={second}
-              label="🥈"
-              size="h-16 w-16 text-lg bg-gradient-to-br from-gray-200 to-gray-400"
-              ring="ring-2 ring-gray-400"
-            />
-          )}
-          <div className="mt-2 flex h-20 w-full items-start justify-center rounded-t-lg bg-gray-700/60 pt-2 text-2xl font-black text-gray-400">
-            2
-          </div>
-        </div>
+        {second && (
+          <Spot
+            player={second}
+            emoji="😤"
+            emojiSize="text-5xl"
+            nameColor="text-gray-300"
+            pedestalH="h-20"
+            pedestalBg="bg-gray-700/50"
+            numColor="text-gray-400"
+            num={2}
+          />
+        )}
 
-        {/* 1st (bigger, taller) */}
-        <div className="flex flex-1 flex-col items-center">
-          {first && (
-            <Avatar
-              player={first}
-              label="👑"
-              size="h-24 w-24 text-2xl bg-gradient-to-br from-yellow-300 to-yellow-500"
-              ring="ring-4 ring-yellow-400"
-            />
-          )}
-          <div className="mt-2 flex h-32 w-full items-start justify-center rounded-t-lg bg-yellow-600/30 pt-2 text-3xl font-black text-yellow-400">
-            1
-          </div>
-        </div>
+        {/* 1st */}
+        {first && (
+          <Spot
+            player={first}
+            emoji="🏆"
+            emojiSize="text-7xl"
+            nameColor="text-yellow-300"
+            pedestalH="h-32"
+            pedestalBg="bg-yellow-600/25"
+            numColor="text-yellow-400"
+            num={1}
+          />
+        )}
 
         {/* 3rd */}
-        <div className="flex flex-1 flex-col items-center">
-          {third && (
-            <Avatar
-              player={third}
-              label="🥉"
-              size="h-14 w-14 text-base bg-gradient-to-br from-amber-500 to-amber-700"
-              ring="ring-2 ring-amber-700"
-            />
-          )}
-          <div className="mt-2 flex h-14 w-full items-start justify-center rounded-t-lg bg-amber-800/40 pt-2 text-2xl font-black text-amber-600">
-            3
-          </div>
-        </div>
+        {third && (
+          <Spot
+            player={third}
+            emoji="🤡"
+            emojiSize="text-4xl"
+            nameColor="text-gray-400"
+            pedestalH="h-14"
+            pedestalBg="bg-amber-800/30"
+            numColor="text-amber-600"
+            num={3}
+          />
+        )}
       </div>
 
-      {/* Rest — stacked uniformly */}
+      {/* Rest — compact horizontal row */}
       {rest.length > 0 && (
-        <div className="mt-4 space-y-1 border-t border-gray-800 pt-3">
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-800 pt-3">
           {rest.map((p) => (
-            <div
-              key={p.playerId}
-              className="flex items-center gap-3 rounded-lg px-2 py-1.5"
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-800 text-xs font-bold text-gray-500">
+            <div key={p.playerId} className="flex items-center gap-2 text-sm">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-800 text-xs font-bold text-gray-500">
                 {p.finishPosition}
               </span>
-              <span className="text-sm text-gray-400">
-                {p.nickname || p.name}
-              </span>
+              <span className="text-gray-400">{p.nickname || p.name}</span>
             </div>
           ))}
         </div>

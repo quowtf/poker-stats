@@ -13,7 +13,7 @@ type ChartEvent = {
   label: string;
 };
 
-type Mode = "wins" | "survival";
+type Mode = "survival" | "wins"; // survival = bands vanish; wins = dominion (eliminator inherits)
 
 export default function StackedChart({
   players,
@@ -34,26 +34,24 @@ export default function StackedChart({
 
   // Dimensions
   const W = 800;
-  const H = 340;
-  const padTop = 20;
-  const padBottom = 40;
-  const padLeft = 10;
-  const padRight = 10;
+  const H = 360;
+  const padTop = 16;
+  const padBottom = 34;
+  const padLeft = 8;
+  const padRight = 8;
   const chartW = W - padLeft - padRight;
   const chartH = H - padTop - padBottom;
 
-  // Order players by finish position (winner on top for nice visual, like AoE2)
+  // Order: winner on top (index 0 = top of stack)
   const orderedPlayers = useMemo(
     () => [...players].sort((a, b) => (a.finishPosition || 99) - (b.finishPosition || 99)),
     [players]
   );
 
-  // Build stacked areas
-  const { areas, maxTotal, xForHand } = useMemo(() => {
+  const { areas, xForHand, yForPlayerAtHand } = useMemo(() => {
     const n = series.length;
-    if (n === 0) return { areas: [], maxTotal: 1, xForHand: () => 0 };
+    if (n === 0) return { areas: [], xForHand: () => 0, yForPlayerAtHand: () => padTop };
 
-    // Max total across all hands (for scaling Y)
     let maxTotal = 0;
     for (const s of series) {
       const total = orderedPlayers.reduce((sum, p) => sum + (s.values[p.id] || 0), 0);
@@ -63,14 +61,12 @@ export default function StackedChart({
 
     const xForHand = (i: number) => padLeft + (n === 1 ? chartW / 2 : (i / (n - 1)) * chartW);
 
-    // For each player, build top and bottom boundary points (stacked)
     const areas = orderedPlayers.map((player, pIdx) => {
       const topPoints: [number, number][] = [];
       const bottomPoints: [number, number][] = [];
 
       series.forEach((s, i) => {
         const x = xForHand(i);
-        // Cumulative sum of players below this one
         let below = 0;
         for (let k = pIdx + 1; k < orderedPlayers.length; k++) {
           below += s.values[orderedPlayers[k].id] || 0;
@@ -82,24 +78,54 @@ export default function StackedChart({
         bottomPoints.push([x, yBottom]);
       });
 
-      // Build path: top left→right, then bottom right→left
       const topPath = topPoints.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
-      const bottomPath = bottomPoints.reverse().map(([x, y]) => `L${x},${y}`).join(" ");
+      const bottomPath = bottomPoints.slice().reverse().map(([x, y]) => `L${x},${y}`).join(" ");
       const path = `${topPath} ${bottomPath} Z`;
 
       return { player, path };
     });
 
-    return { areas, maxTotal, xForHand };
+    // Y coordinate at the MIDDLE of a player's band for a given hand number
+    const yForPlayerAtHand = (playerId: string, handNumber: number): number => {
+      const i = series.findIndex((s) => s.handNumber === handNumber);
+      if (i === -1) return padTop;
+      const s = series[i];
+      const pIdx = orderedPlayers.findIndex((p) => p.id === playerId);
+      if (pIdx === -1) return padTop;
+      let below = 0;
+      for (let k = pIdx + 1; k < orderedPlayers.length; k++) {
+        below += s.values[orderedPlayers[k].id] || 0;
+      }
+      const val = s.values[playerId] || 0;
+      const yMid = padTop + chartH - ((below + val / 2) / maxTotal) * chartH;
+      return yMid;
+    };
+
+    return { areas, xForHand, yForPlayerAtHand };
   }, [series, orderedPlayers, chartW, chartH]);
 
   const handNumbers = series.map((s) => s.handNumber);
+
+  // Event markers placed ON the player's band line
+  const eventMarkers = useMemo(() => {
+    return events
+      .map((ev) => {
+        const i = handNumbers.indexOf(ev.handNumber);
+        if (i === -1) return null;
+        // In survival mode, if player is already dead, place at their last known band
+        return {
+          ...ev,
+          x: xForHand(i),
+          y: yForPlayerAtHand(ev.playerId, ev.handNumber),
+        };
+      })
+      .filter(Boolean) as (ChartEvent & { x: number; y: number })[];
+  }, [events, handNumbers, xForHand, yForPlayerAtHand]);
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     if (!svgRef.current || series.length === 0) return;
     const rect = svgRef.current.getBoundingClientRect();
     const relX = ((e.clientX - rect.left) / rect.width) * W;
-    // Find nearest hand
     let nearest = 0;
     let minDist = Infinity;
     series.forEach((s, i) => {
@@ -110,17 +136,7 @@ export default function StackedChart({
     setHover({ x: xForHand(nearest), handNumber: series[nearest].handNumber });
   }
 
-  // Events near hovered hand
   const hoverEvents = hover ? events.filter((ev) => ev.handNumber === hover.handNumber) : [];
-
-  // Event markers on top axis
-  const eventMarkers = useMemo(() => {
-    return events.map((ev) => {
-      const i = handNumbers.indexOf(ev.handNumber);
-      if (i === -1) return null;
-      return { ...ev, x: xForHand(i) };
-    }).filter(Boolean) as (ChartEvent & { x: number })[];
-  }, [events, handNumbers, xForHand]);
 
   return (
     <div>
@@ -140,9 +156,15 @@ export default function StackedChart({
             mode === "wins" ? "bg-emerald-600 text-white" : "bg-gray-800 text-gray-400"
           }`}
         >
-          🏆 Dominio
+          👑 Dominio
         </button>
       </div>
+
+      <p className="mb-2 text-center text-[10px] text-gray-600">
+        {mode === "survival"
+          ? "Cada banda desaparece cuando el jugador es eliminado"
+          : "Al eliminar a alguien, su territorio pasa al ganador"}
+      </p>
 
       {/* Chart */}
       <div className="relative rounded-xl bg-gray-900 p-2">
@@ -171,20 +193,22 @@ export default function StackedChart({
             <line x1={hover.x} y1={padTop} x2={hover.x} y2={padTop + chartH} stroke="#fff" strokeWidth={1} strokeDasharray="3 3" opacity={0.5} />
           )}
 
-          {/* Event markers (top axis) */}
+          {/* Event markers ON player's band */}
           {eventMarkers.map((ev, i) => (
             <g key={i}>
-              <line x1={ev.x} y1={padTop} x2={ev.x} y2={padTop + chartH} stroke="#ffffff" strokeWidth={0.5} opacity={0.08} />
-              <text x={ev.x} y={padTop - 6} textAnchor="middle" fontSize={11}>{ev.emoji}</text>
+              <circle cx={ev.x} cy={ev.y} r={9} fill="#000" fillOpacity={0.35} />
+              <text x={ev.x} y={ev.y} textAnchor="middle" dominantBaseline="central" fontSize={12}>
+                {ev.emoji}
+              </text>
             </g>
           ))}
 
-          {/* X axis labels (every few hands) */}
+          {/* X axis labels */}
           {series.map((s, i) => {
             const step = Math.ceil(series.length / 10);
             if (i % step !== 0 && i !== series.length - 1) return null;
             return (
-              <text key={i} x={xForHand(i)} y={H - 20} textAnchor="middle" fontSize={10} fill="#6b7280">
+              <text key={i} x={xForHand(i)} y={H - 16} textAnchor="middle" fontSize={10} fill="#6b7280">
                 #{s.handNumber}
               </text>
             );
@@ -193,7 +217,7 @@ export default function StackedChart({
 
         {/* Tooltip */}
         {hover && hoverEvents.length > 0 && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-lg bg-black/90 px-3 py-2 text-xs text-white shadow-lg pointer-events-none">
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-lg bg-black/90 px-3 py-2 text-xs text-white shadow-lg pointer-events-none z-10">
             <p className="font-bold text-gray-400 mb-1">Mano #{hover.handNumber}</p>
             {hoverEvents.map((ev, i) => (
               <p key={i}>{ev.emoji} {ev.label}</p>
@@ -202,7 +226,7 @@ export default function StackedChart({
         )}
       </div>
 
-      {/* Legend */}
+      {/* Legend players */}
       <div className="mt-3 flex flex-wrap justify-center gap-3">
         {orderedPlayers.map((p) => (
           <div key={p.id} className="flex items-center gap-1.5 text-xs">
@@ -212,7 +236,7 @@ export default function StackedChart({
         ))}
       </div>
 
-      {/* Event legend */}
+      {/* Legend events */}
       <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-gray-600">
         <span>⚔️ all-in sobrevive</span>
         <span>🐊 all-in gana</span>

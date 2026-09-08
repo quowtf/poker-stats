@@ -94,13 +94,20 @@ export async function GET(
     const strongHands = ["full_house", "four_of_a_kind", "straight_flush", "royal_flush"];
     let prevLeader: string | null = null;
 
+    // Dominio: each player starts with weight 1. When eliminated,
+    // their weight transfers to whoever won that hand (the eliminator).
+    // The eliminator's band grows — visually "takes over" the loser's space.
+    const dominion: Record<string, number> = {};
+    playerList.forEach((p) => { dominion[p.id] = 1; });
+
     for (const hand of allHands) {
       const hps = allHP.filter((hp) => hp.handId === hand.id);
+      const handWinner = hps.find((hp) => hp.won);
+
       for (const hp of hps) {
         const pName = playerList.find((p) => p.id === hp.playerId)?.name || "?";
         if (hp.won) {
           cumulativeWins[hp.playerId] = (cumulativeWins[hp.playerId] || 0) + 1;
-          // Strong hand marker
           if (hand.winningHandType && strongHands.includes(hand.winningHandType)) {
             const labels: Record<string, string> = {
               full_house: "Full", four_of_a_kind: "Póker", straight_flush: "Esc. Color", royal_flush: "Esc. Real",
@@ -117,6 +124,11 @@ export async function GET(
         }
         if (hp.eliminated) {
           eliminatedAtHand[hp.playerId] = hand.handNumber;
+          // Transfer this player's dominion weight to the eliminator (hand winner)
+          if (handWinner && handWinner.playerId !== hp.playerId) {
+            dominion[handWinner.playerId] = (dominion[handWinner.playerId] || 0) + (dominion[hp.playerId] || 0);
+          }
+          dominion[hp.playerId] = 0;
           events.push({
             handNumber: hand.handNumber, playerId: hp.playerId, playerName: pName,
             type: "elimination", emoji: "💀", label: `${pName} eliminado`,
@@ -134,8 +146,10 @@ export async function GET(
           }
         }
       }
+
       raceData.push({ handNumber: hand.handNumber, wins: { ...cumulativeWins } });
-      winsSeries.push({ handNumber: hand.handNumber, values: { ...cumulativeWins } });
+      // Dominio series (band grows as you eliminate others)
+      winsSeries.push({ handNumber: hand.handNumber, values: { ...dominion } });
 
       // Survival: 1 if alive at this hand, else 0
       const survivalValues: Record<string, number> = {};
@@ -145,14 +159,14 @@ export async function GET(
       }
       survivalSeries.push({ handNumber: hand.handNumber, values: survivalValues });
 
-      // Leader change marker
-      const leaderEntry = Object.entries(cumulativeWins).sort((a, b) => b[1] - a[1])[0];
-      if (leaderEntry && leaderEntry[1] > 0 && leaderEntry[0] !== prevLeader) {
+      // Leader change marker (based on dominion now)
+      const leaderEntry = Object.entries(dominion).sort((a, b) => b[1] - a[1])[0];
+      if (leaderEntry && leaderEntry[0] !== prevLeader) {
         const lName = playerList.find((p) => p.id === leaderEntry[0])?.name || "?";
         if (prevLeader !== null) {
           events.push({
             handNumber: hand.handNumber, playerId: leaderEntry[0], playerName: lName,
-            type: "leader_change", emoji: "👑", label: `${lName} toma el liderato`,
+            type: "leader_change", emoji: "👑", label: `${lName} domina la mesa`,
           });
         }
         prevLeader = leaderEntry[0];
