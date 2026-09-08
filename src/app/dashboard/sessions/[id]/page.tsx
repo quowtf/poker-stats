@@ -3,7 +3,20 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
 import StackedChart from "./StackedChart";
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 type ChartEvent = {
   handNumber: number;
@@ -18,8 +31,7 @@ type RecapData = {
   session: { id: string; playedAt: string; playerCount: number; totalHands: number };
   players: { id: string; name: string; color: string; finishPosition: number | null }[];
   raceData: { handNumber: number; wins: Record<string, number> }[];
-  winsSeries: { handNumber: number; values: Record<string, number> }[];
-  survivalSeries: { handNumber: number; values: Record<string, number> }[];
+  dominionSeries: { handNumber: number; values: Record<string, number> }[];
   events: ChartEvent[];
   eliminatedAtHand: Record<string, number>;
   allInAtHands: { playerId: string; handNumber: number }[];
@@ -48,6 +60,35 @@ export default function SessionRecapPage() {
   const winner = data.players.find((p) => p.finishPosition === 1);
   const winnerName = winner?.name || "?";
 
+  // Line chart: cumulative hands won per player
+  const chartData = {
+    labels: data.raceData.map((d) => `#${d.handNumber}`),
+    datasets: data.players.map((player) => ({
+      label: player.name,
+      data: data.raceData.map((d) => d.wins[player.id] || 0),
+      borderColor: player.color,
+      backgroundColor: player.color + "20",
+      tension: 0.3,
+      pointRadius: 0,
+      pointHitRadius: 8,
+      borderWidth: 2,
+    })),
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: "bottom" as const, labels: { color: "#9ca3af", boxWidth: 12, padding: 12 } },
+      tooltip: { mode: "index" as const, intersect: false },
+    },
+    scales: {
+      x: { ticks: { color: "#6b7280", maxTicksLimit: 10 }, grid: { color: "#1f2937" } },
+      y: { ticks: { color: "#6b7280", stepSize: 1 }, grid: { color: "#1f2937" }, title: { display: true, text: "Manos ganadas", color: "#6b7280" } },
+    },
+    interaction: { mode: "nearest" as const, axis: "x" as const, intersect: false },
+  };
+
   return (
     <div className="mx-auto min-h-screen max-w-2xl bg-gray-950 px-4 py-8 text-gray-100">
       {/* Header */}
@@ -65,15 +106,25 @@ export default function SessionRecapPage() {
         <p className="text-gray-400">Ganador · {data.session.totalHands} manos · {data.session.playerCount} jugadores</p>
       </div>
 
-      {/* Stacked Chart (AoE2 style) */}
+      {/* Dominio — stacked area (AoE2 style) */}
       <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">La Noche en Gráfica</h2>
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Dominio de la Mesa</h2>
         <StackedChart
           players={data.players}
-          winsSeries={data.winsSeries}
-          survivalSeries={data.survivalSeries}
+          dominionSeries={data.dominionSeries}
           events={data.events}
         />
+      </section>
+
+      {/* Carrera de Manos — line chart */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Carrera de Manos</h2>
+        <p className="mb-3 text-center text-[10px] text-gray-600">
+          Manos ganadas acumuladas por jugador a lo largo de la noche
+        </p>
+        <div className="rounded-xl bg-gray-900 p-4" style={{ height: "320px" }}>
+          <Line data={chartData} options={chartOptions} />
+        </div>
       </section>
 
       {/* MVPs */}

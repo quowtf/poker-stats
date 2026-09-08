@@ -124,9 +124,18 @@ export async function GET(
         }
         if (hp.eliminated) {
           eliminatedAtHand[hp.playerId] = hand.handNumber;
-          // Transfer this player's dominion weight to the eliminator (hand winner)
-          if (handWinner && handWinner.playerId !== hp.playerId) {
-            dominion[handWinner.playerId] = (dominion[handWinner.playerId] || 0) + (dominion[hp.playerId] || 0);
+          // Transfer this player's dominion weight to the eliminator (hand winner).
+          // Fallback: if there's no distinct winner, give it to the current dominion leader
+          // so territory always flows toward the eventual table winner.
+          let inheritor = handWinner && handWinner.playerId !== hp.playerId ? handWinner.playerId : null;
+          if (!inheritor) {
+            const leader = Object.entries(dominion)
+              .filter(([id]) => id !== hp.playerId)
+              .sort((a, b) => b[1] - a[1])[0];
+            inheritor = leader ? leader[0] : null;
+          }
+          if (inheritor) {
+            dominion[inheritor] = (dominion[inheritor] || 0) + (dominion[hp.playerId] || 0);
           }
           dominion[hp.playerId] = 0;
           events.push({
@@ -171,6 +180,21 @@ export async function GET(
         }
         prevLeader = leaderEntry[0];
       }
+    }
+
+    // Final normalization: table winner (1st place) absorbs ALL remaining territory
+    // so the last column is a single full color (handles heads-up finish where the
+    // runner-up was never explicitly marked eliminated).
+    const tableWinner = playerList.find((p) => p.finishPosition === 1);
+    if (tableWinner && winsSeries.length > 0) {
+      const totalTerritory = playerList.length;
+      const finalValues: Record<string, number> = {};
+      playerList.forEach((p) => { finalValues[p.id] = 0; });
+      finalValues[tableWinner.id] = totalTerritory;
+      winsSeries[winsSeries.length - 1] = {
+        handNumber: winsSeries[winsSeries.length - 1].handNumber,
+        values: finalValues,
+      };
     }
 
     // MVPs
@@ -260,8 +284,7 @@ export async function GET(
       },
       players: playerList,
       raceData,
-      winsSeries,
-      survivalSeries,
+      dominionSeries: winsSeries,
       events,
       eliminatedAtHand,
       allInAtHands,

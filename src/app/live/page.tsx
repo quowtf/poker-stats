@@ -2,18 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-  Legend,
-} from "chart.js";
-import { Line } from "react-chartjs-2";
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
+import StackedChart from "../dashboard/sessions/[id]/StackedChart";
 
 type RankingEntry = {
   playerId: string;
@@ -263,8 +252,13 @@ function WinnerSlider({
 }) {
   const [slide, setSlide] = useState(0); // 0 = winner, 1 = chart
   const [recapData, setRecapData] = useState<{
-    players: { id: string; name: string; color: string }[];
-    raceData: { handNumber: number; wins: Record<string, number> }[];
+    players: { id: string; name: string; color: string; finishPosition: number | null }[];
+    dominionSeries: { handNumber: number; values: Record<string, number> }[];
+    events: {
+      handNumber: number; playerId: string; playerName: string;
+      type: "allin_win" | "allin_survive" | "elimination" | "strong_hand" | "leader_change";
+      emoji: string; label: string;
+    }[];
   } | null>(null);
 
   // Auto advance to chart after 8 seconds
@@ -304,42 +298,21 @@ function WinnerSlider({
     );
   }
 
-  // Slide 1: Race chart
-  const chartData = recapData
-    ? {
-        labels: recapData.raceData.map((d) => `#${d.handNumber}`),
-        datasets: recapData.players.map((player) => ({
-          label: player.name,
-          data: recapData.raceData.map((d) => d.wins[player.id] || 0),
-          borderColor: player.color,
-          backgroundColor: player.color + "20",
-          tension: 0.3,
-          pointRadius: 0,
-          borderWidth: 3,
-        })),
-      }
-    : null;
-
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { position: "bottom" as const, labels: { color: "#9ca3af", boxWidth: 12, padding: 16, font: { size: 14 } } },
-    },
-    scales: {
-      x: { ticks: { color: "#6b7280", maxTicksLimit: 8 }, grid: { color: "#1f2937" } },
-      y: { ticks: { color: "#6b7280", stepSize: 1 }, grid: { color: "#1f2937" } },
-    },
-  };
-
+  // Slide 1: Dominio stacked chart
   return (
     <div className="flex min-h-screen flex-col bg-black text-white p-6" onClick={() => setSlide(0)}>
-      <h2 className="text-center text-xl font-bold text-gray-400 mb-4">Carrera de la noche</h2>
-      <div className="flex-1 rounded-xl bg-gray-900 p-4">
-        {chartData ? (
-          <Line data={chartData} options={chartOptions} />
+      <h2 className="text-center text-xl font-bold text-gray-400 mb-4">Dominio de la Mesa</h2>
+      <div className="flex-1 rounded-xl bg-gray-900 p-4 flex items-center">
+        {recapData ? (
+          <div className="w-full">
+            <StackedChart
+              players={recapData.players}
+              dominionSeries={recapData.dominionSeries}
+              events={recapData.events}
+            />
+          </div>
         ) : (
-          <p className="text-center text-gray-600">Cargando gráfica...</p>
+          <p className="w-full text-center text-gray-600">Cargando gráfica...</p>
         )}
       </div>
       <Link

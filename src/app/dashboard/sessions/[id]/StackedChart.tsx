@@ -13,24 +13,19 @@ type ChartEvent = {
   label: string;
 };
 
-type Mode = "survival" | "wins"; // survival = bands vanish; wins = dominion (eliminator inherits)
-
 export default function StackedChart({
   players,
-  winsSeries,
-  survivalSeries,
+  dominionSeries,
   events,
 }: {
   players: Player[];
-  winsSeries: Series[];
-  survivalSeries: Series[];
+  dominionSeries: Series[];
   events: ChartEvent[];
 }) {
-  const [mode, setMode] = useState<Mode>("survival");
   const [hover, setHover] = useState<{ x: number; handNumber: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const series = mode === "wins" ? winsSeries : survivalSeries;
+  const series = dominionSeries;
 
   // Dimensions
   const W = 800;
@@ -140,30 +135,8 @@ export default function StackedChart({
 
   return (
     <div>
-      {/* Mode toggle */}
-      <div className="mb-3 flex justify-center gap-2">
-        <button
-          onClick={() => setMode("survival")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-            mode === "survival" ? "bg-emerald-600 text-white" : "bg-gray-800 text-gray-400"
-          }`}
-        >
-          🩸 Supervivencia
-        </button>
-        <button
-          onClick={() => setMode("wins")}
-          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-            mode === "wins" ? "bg-emerald-600 text-white" : "bg-gray-800 text-gray-400"
-          }`}
-        >
-          👑 Dominio
-        </button>
-      </div>
-
-      <p className="mb-2 text-center text-[10px] text-gray-600">
-        {mode === "survival"
-          ? "Cada banda desaparece cuando el jugador es eliminado"
-          : "Al eliminar a alguien, su territorio pasa al ganador"}
+      <p className="mb-3 text-center text-[10px] text-gray-600">
+        Al eliminar a alguien, su territorio pasa al ganador — el verdugo de la mesa se expande
       </p>
 
       {/* Chart */}
