@@ -9,7 +9,11 @@ export type LadderEntry = {
   nickname: string | null;
   value: number;
   detail?: string;
+  // Optional extra columns for table-style ladders (keyed by column id)
+  cols?: Record<string, number | string>;
 };
+
+export type LadderColumn = { id: string; label: string };
 
 export type LadderResult = {
   statId: string;
@@ -18,6 +22,8 @@ export type LadderResult = {
   description: string;
   unit: string;
   entries: LadderEntry[];
+  // When present, the ladder renders as a table with these columns
+  columns?: LadderColumn[];
 };
 
 // ─── Data fetchers (cached per call) ─────────────────────────────────────────
@@ -190,23 +196,6 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
     return { statId: "consistency", title: "Consistencia", emoji: "🧘", description: "Menor volatilidad = más predecible", unit: "σ", entries };
   },
 
-  "hands-won": async () => {
-    const rows = await getHandData();
-    const map = new Map<string, { name: string; nickname: string | null; won: number; played: number }>();
-    for (const r of rows) {
-      if (!r.participated) continue;
-      const e = map.get(r.playerId) || { name: r.playerName, nickname: r.playerNickname, won: 0, played: 0 };
-      e.played++;
-      if (r.won) e.won++;
-      map.set(r.playerId, e);
-    }
-    const entries = [...map.entries()]
-      .map(([id, d]) => ({ playerId: id, name: d.name, nickname: d.nickname, value: d.won, detail: `${Math.round((d.won / d.played) * 100)}% win rate (${d.played} jugadas)` }))
-      .sort((a, b) => b.value - a.value)
-      .map((e, i) => ({ ...e, rank: i + 1 }));
-    return { statId: "hands-won", title: "Manos Ganadas", emoji: "🖐️", description: "Total de manos ganadas históricamente", unit: "", entries };
-  },
-
   "win-rate": async () => {
     const rows = await getHandData();
     const map = new Map<string, { name: string; nickname: string | null; won: number; played: number }>();
@@ -219,10 +208,31 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
     }
     const entries = [...map.entries()]
       .filter(([_, d]) => d.played >= 10)
-      .map(([id, d]) => ({ playerId: id, name: d.name, nickname: d.nickname, value: Math.round((d.won / d.played) * 100), detail: `${d.won}/${d.played} manos` }))
+      .map(([id, d]) => {
+        const wr = Math.round((d.won / d.played) * 100);
+        return {
+          playerId: id,
+          name: d.name,
+          nickname: d.nickname,
+          value: wr,
+          cols: { mj: d.played, mg: d.won, wr },
+        };
+      })
       .sort((a, b) => b.value - a.value)
       .map((e, i) => ({ ...e, rank: i + 1 }));
-    return { statId: "win-rate", title: "Win Rate", emoji: "🎯", description: "Porcentaje de manos ganadas (mín 10 jugadas)", unit: "%", entries };
+    return {
+      statId: "win-rate",
+      title: "Win Rate",
+      emoji: "🎯",
+      description: "Manos ganadas ÷ manos jugadas (mín 10 jugadas). MJ=manos jugadas, MG=manos ganadas, WR=win rate.",
+      unit: "%",
+      entries,
+      columns: [
+        { id: "mj", label: "MJ" },
+        { id: "mg", label: "MG" },
+        { id: "wr", label: "WR%" },
+      ],
+    };
   },
 
   "all-ins": async () => {
@@ -341,7 +351,6 @@ export function getAvailableStats(): { id: string; title: string; emoji: string 
     { id: "podiums", title: "Podios", emoji: "🥉" },
     { id: "volatility", title: "Volatilidad", emoji: "🎰" },
     { id: "consistency", title: "Consistencia", emoji: "🧘" },
-    { id: "hands-won", title: "Manos Ganadas", emoji: "🖐️" },
     { id: "win-rate", title: "Win Rate", emoji: "🎯" },
     { id: "all-ins", title: "All-Ins", emoji: "🤠" },
     { id: "all-in-survival", title: "Supervivencia All-In", emoji: "🐊" },

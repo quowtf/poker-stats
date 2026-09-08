@@ -427,7 +427,6 @@ export default async function DashboardPage() {
                     { id: "consistency", emoji: "🧘", title: "Consistencia" },
                   ]
                 : []),
-              { id: "hands-won", emoji: "🖐️", title: "Manos" },
               { id: "win-rate", emoji: "🎯", title: "Win Rate" },
               { id: "all-ins", emoji: "🤠", title: "All-Ins" },
               { id: "all-in-survival", emoji: "🐊", title: "Survival" },
