@@ -113,6 +113,7 @@ export type LastSessionResult = {
   id: string;
   playedAt: string;
   playerCount: number;
+  handCount: number;
   players: {
     playerId: string;
     name: string;
@@ -142,10 +143,16 @@ export async function getLastSession(): Promise<LastSessionResult> {
     .where(eq(sessionPlayers.sessionId, lastSession.id))
     .orderBy(sessionPlayers.finishPosition);
 
+  const [handCountResult] = await db
+    .select({ total: count() })
+    .from(hands)
+    .where(eq(hands.sessionId, lastSession.id));
+
   return {
     id: lastSession.id,
     playedAt: lastSession.playedAt,
     playerCount: lastSession.playerCount,
+    handCount: handCountResult?.total ?? 0,
     players: sessionPlayersList,
   };
 }

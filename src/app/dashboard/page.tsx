@@ -101,7 +101,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto min-h-screen max-w-lg bg-gray-950 px-4 py-8 text-gray-100">
-      <h1 className="mb-2 text-center text-3xl font-bold">🃏 Poker League</h1>
+      <h1 className="mb-2 text-center text-3xl font-bold">♠️ ♦️ Poker League ♣️ ♥️</h1>
       <p className="mb-8 text-center text-sm text-gray-500">
         {totalSessions} {totalSessions === 1 ? "sesión" : "sesiones"} jugadas
       </p>
@@ -117,7 +117,7 @@ export default async function DashboardPage() {
               "es-MX",
               { day: "numeric", month: "long", year: "numeric" }
             )}{" "}
-            · {lastSession.playerCount} jugadores
+            · {lastSession.playerCount} jugadores · {lastSession.handCount} manos
           </p>
 
           <Podium players={lastSession.players} />
