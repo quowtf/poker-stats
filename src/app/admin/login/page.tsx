@@ -1,11 +1,10 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/admin/sessions";
   const [error, setError] = useState("");
@@ -30,7 +29,10 @@ function LoginForm() {
       setError("Email o password incorrectos");
       setLoading(false);
     } else {
-      router.push(callbackUrl);
+      // Full page navigation so the freshly-set session cookie is sent
+      // with the request (router.push uses client-side nav and can race
+      // the cookie write, causing the "login twice" bug).
+      window.location.href = callbackUrl;
     }
   }
 
