@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { sessions, sessionPlayers, players, hands, handPlayers } from "@/db/schema";
-import { desc, eq, sql, count } from "drizzle-orm";
+import { desc, eq, sql, count, and } from "drizzle-orm";
 
 // Points system: 1st=10, 2nd=7, 3rd=5, 4th=3, 5th=2, 6th+=1
 function positionPoints(position: number): number {
@@ -98,6 +98,7 @@ export type LastSessionResult = {
   playedAt: string;
   playerCount: number;
   players: {
+    playerId: string;
     name: string;
     nickname: string | null;
     finishPosition: number | null;
@@ -115,6 +116,7 @@ export async function getLastSession(): Promise<LastSessionResult> {
 
   const sessionPlayersList = await db
     .select({
+      playerId: sessionPlayers.playerId,
       name: players.name,
       nickname: players.nickname,
       finishPosition: sessionPlayers.finishPosition,
@@ -135,6 +137,38 @@ export async function getLastSession(): Promise<LastSessionResult> {
 export async function getTotalSessions(): Promise<number> {
   const [result] = await db.select({ total: count() }).from(sessions);
   return result.total;
+}
+
+export type SessionSummary = {
+  id: string;
+  playedAt: string;
+  playerCount: number;
+  winner: string | null;
+};
+
+export async function getSessionHistory(): Promise<SessionSummary[]> {
+  const allSessions = await db
+    .select({ id: sessions.id, playedAt: sessions.playedAt, playerCount: sessions.playerCount })
+    .from(sessions)
+    .orderBy(desc(sessions.playedAt), desc(sessions.createdAt));
+
+  return Promise.all(
+    allSessions.map(async (s) => {
+      const [winner] = await db
+        .select({ name: players.name, nickname: players.nickname })
+        .from(sessionPlayers)
+        .innerJoin(players, eq(sessionPlayers.playerId, players.id))
+        .where(and(eq(sessionPlayers.sessionId, s.id), eq(sessionPlayers.finishPosition, 1)))
+        .limit(1);
+
+      return {
+        id: s.id,
+        playedAt: s.playedAt,
+        playerCount: s.playerCount,
+        winner: winner ? winner.nickname || winner.name : null,
+      };
+    })
+  );
 }
 
 // ─── Advanced Stats (Fase 4) ─────────────────────────────────────────────────

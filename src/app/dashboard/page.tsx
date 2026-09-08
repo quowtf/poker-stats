@@ -10,12 +10,13 @@ import {
   getHandFunLabels,
   getKillStats,
   getHandTypeStats,
+  getSessionHistory,
 } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats, handTypeStats] =
+  const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats, handTypeStats, sessionHistory] =
     await Promise.all([
       getLeaderboard(),
       getLastSession(),
@@ -27,6 +28,7 @@ export default async function DashboardPage() {
       getHandFunLabels(),
       getKillStats(),
       getHandTypeStats(),
+      getSessionHistory(),
     ]);
 
   return (
@@ -42,44 +44,15 @@ export default async function DashboardPage() {
           <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
             Última Mesa
           </h2>
-          <div className="rounded-xl bg-gray-900 p-4">
-            <p className="mb-3 text-sm text-gray-400">
-              {new Date(lastSession.playedAt + "T12:00:00").toLocaleDateString(
-                "es-MX",
-                { day: "numeric", month: "long", year: "numeric" }
-              )}{" "}
-              · {lastSession.playerCount} jugadores
-            </p>
-            <div className="space-y-2">
-              {lastSession.players.map((p) => (
-                <div
-                  key={p.finishPosition}
-                  className="flex items-center gap-3"
-                >
-                  <span
-                    className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
-                      p.finishPosition === 1
-                        ? "bg-yellow-500 text-black"
-                        : p.finishPosition === 2
-                        ? "bg-gray-300 text-black"
-                        : p.finishPosition === 3
-                        ? "bg-amber-700 text-white"
-                        : "bg-gray-700 text-gray-400"
-                    }`}
-                  >
-                    {p.finishPosition}
-                  </span>
-                  <span
-                    className={
-                      (p.finishPosition ?? 99) <= 3 ? "font-medium" : "text-gray-400"
-                    }
-                  >
-                    {p.nickname || p.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <p className="mb-4 text-center text-xs text-gray-500">
+            {new Date(lastSession.playedAt + "T12:00:00").toLocaleDateString(
+              "es-MX",
+              { day: "numeric", month: "long", year: "numeric" }
+            )}{" "}
+            · {lastSession.playerCount} jugadores
+          </p>
+
+          <Podium players={lastSession.players} />
         </section>
       )}
 
@@ -471,6 +444,40 @@ export default async function DashboardPage() {
         </section>
       )}
 
+      {/* Session History */}
+      {sessionHistory.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+            Historial de Sesiones
+          </h2>
+          <div className="space-y-2">
+            {sessionHistory.map((s) => (
+              <Link
+                key={s.id}
+                href={`/dashboard/sessions/${s.id}`}
+                className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-3 transition hover:bg-gray-800"
+              >
+                <div>
+                  <p className="text-sm font-medium">
+                    {new Date(s.playedAt + "T12:00:00").toLocaleDateString("es-MX", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </p>
+                  <p className="text-xs text-gray-500">{s.playerCount} jugadores</p>
+                </div>
+                {s.winner && (
+                  <span className="text-sm">
+                    🏆 <span className="font-medium">{s.winner}</span>
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* All Rankings */}
       {totalSessions > 0 && (
         <section className="mb-8">
@@ -513,6 +520,126 @@ export default async function DashboardPage() {
           <p className="mt-2 text-gray-400">
             No hay sesiones registradas todavía.
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Podium Component ────────────────────────────────────────────────────────
+
+type PodiumPlayer = {
+  playerId: string;
+  name: string;
+  nickname: string | null;
+  finishPosition: number | null;
+};
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function Podium({ players }: { players: PodiumPlayer[] }) {
+  const sorted = [...players].sort(
+    (a, b) => (a.finishPosition ?? 99) - (b.finishPosition ?? 99)
+  );
+  const first = sorted.find((p) => p.finishPosition === 1);
+  const second = sorted.find((p) => p.finishPosition === 2);
+  const third = sorted.find((p) => p.finishPosition === 3);
+  const rest = sorted.filter((p) => (p.finishPosition ?? 99) > 3);
+
+  const Avatar = ({
+    player,
+    size,
+    ring,
+    label,
+  }: {
+    player: PodiumPlayer;
+    size: string;
+    ring: string;
+    label: string;
+  }) => (
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-2xl leading-none">{label}</span>
+      <div
+        className={`flex items-center justify-center rounded-full font-black text-black shadow-lg ${size} ${ring}`}
+      >
+        {initials(player.nickname || player.name)}
+      </div>
+      <span className="max-w-[90px] truncate text-center text-sm font-semibold text-white">
+        {player.nickname || player.name}
+      </span>
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl bg-gradient-to-b from-gray-900 to-gray-950 p-5">
+      {/* Podium top 3 */}
+      <div className="flex items-end justify-center gap-3">
+        {/* 2nd */}
+        <div className="flex flex-1 flex-col items-center">
+          {second && (
+            <Avatar
+              player={second}
+              label="🥈"
+              size="h-16 w-16 text-lg bg-gradient-to-br from-gray-200 to-gray-400"
+              ring="ring-2 ring-gray-400"
+            />
+          )}
+          <div className="mt-2 flex h-20 w-full items-start justify-center rounded-t-lg bg-gray-700/60 pt-2 text-2xl font-black text-gray-400">
+            2
+          </div>
+        </div>
+
+        {/* 1st (bigger, taller) */}
+        <div className="flex flex-1 flex-col items-center">
+          {first && (
+            <Avatar
+              player={first}
+              label="👑"
+              size="h-24 w-24 text-2xl bg-gradient-to-br from-yellow-300 to-yellow-500"
+              ring="ring-4 ring-yellow-400"
+            />
+          )}
+          <div className="mt-2 flex h-32 w-full items-start justify-center rounded-t-lg bg-yellow-600/30 pt-2 text-3xl font-black text-yellow-400">
+            1
+          </div>
+        </div>
+
+        {/* 3rd */}
+        <div className="flex flex-1 flex-col items-center">
+          {third && (
+            <Avatar
+              player={third}
+              label="🥉"
+              size="h-14 w-14 text-base bg-gradient-to-br from-amber-500 to-amber-700"
+              ring="ring-2 ring-amber-700"
+            />
+          )}
+          <div className="mt-2 flex h-14 w-full items-start justify-center rounded-t-lg bg-amber-800/40 pt-2 text-2xl font-black text-amber-600">
+            3
+          </div>
+        </div>
+      </div>
+
+      {/* Rest — stacked uniformly */}
+      {rest.length > 0 && (
+        <div className="mt-4 space-y-1 border-t border-gray-800 pt-3">
+          {rest.map((p) => (
+            <div
+              key={p.playerId}
+              className="flex items-center gap-3 rounded-lg px-2 py-1.5"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-800 text-xs font-bold text-gray-500">
+                {p.finishPosition}
+              </span>
+              <span className="text-sm text-gray-400">
+                {p.nickname || p.name}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>
