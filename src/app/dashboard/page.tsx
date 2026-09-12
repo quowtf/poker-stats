@@ -466,14 +466,35 @@ type Award = { emoji: string; title: string; player: string; description?: strin
 
 function AwardCard({ award }: { award: Award }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg bg-gray-900 px-4 py-3">
-      <span className="text-2xl">{award.emoji}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-gray-300">{award.title}</p>
-        <p className="truncate font-semibold text-white">{award.player}</p>
-        {award.description && (
-          <p className="text-xs text-gray-500">{award.description}</p>
-        )}
+    <div className="rounded-xl bg-gradient-to-br from-gray-600 to-gray-800 p-1.5 shadow-lg">
+      {/* Inner card face (like the printed area of a playing card) */}
+      <div className="relative flex aspect-[3/4] flex-col rounded-lg bg-gray-900 p-3">
+        {/* Top-left emoji corner */}
+        <span className="absolute left-3 top-3 text-3xl leading-none opacity-75">
+          {award.emoji}
+        </span>
+        {/* Bottom-right emoji corner (rotated, like a real card) */}
+        <span className="absolute bottom-3 right-3 rotate-180 text-3xl leading-none opacity-75">
+          {award.emoji}
+        </span>
+
+        {/* Center content */}
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <p
+            className="w-full truncate text-2xl font-black text-white"
+            title={award.player}
+          >
+            {award.player}
+          </p>
+          <p className="mt-1 text-xl font-bold uppercase leading-tight tracking-wide text-emerald-400">
+            {award.title}
+          </p>
+          {award.description && (
+            <p className="mt-2 text-sm leading-snug text-gray-400">
+              {award.description}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -482,11 +503,11 @@ function AwardCard({ award }: { award: Award }) {
 function AwardGroup({ subtitle, awards }: { subtitle: string; awards: Award[] }) {
   if (awards.length === 0) return null;
   return (
-    <div className="mb-4">
+    <div className="mb-5">
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600">
         {subtitle}
       </p>
-      <div className="grid grid-cols-1 gap-2">
+      <div className="grid grid-cols-2 gap-3">
         {awards.map((a, i) => (
           <AwardCard key={i} award={a} />
         ))}
