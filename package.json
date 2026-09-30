@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:seed": "npx tsx scripts/seed.ts"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "npx tsx scripts/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "npx tsx scripts/seed.ts",
+    "db:reset": "npx tsx scripts/reset.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
@@ -29,6 +33,8 @@
     "@types/react-dom": "^19.0.0",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.30.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.5",
     "postcss": "^8.0.0",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.23.12",

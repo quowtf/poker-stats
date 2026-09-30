@@ -72,12 +72,21 @@ export const players = pgTable("players", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Heads-up (1v1 final) resolution mode. Informative only: drives the blinds
+// shown once the table is down to 2 players. Chosen once at session setup.
+export const headsUpModeEnum = pgEnum("heads_up_mode", [
+  "natura",     // blinds keep escalating (ruleta rusa)
+  "best_of_5",  // blinds drop to 5/10, first to 5 hands
+  "best_of_3",  // blinds drop to 100/200, best of 3
+]);
+
 export const sessions = pgTable("sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
   playedAt: date("played_at", { mode: "string" }).notNull(),
   playerCount: integer("player_count").notNull(),
   notes: text("notes"),
   isLive: boolean("is_live").notNull().default(false),
+  headsUpMode: headsUpModeEnum("heads_up_mode").notNull().default("natura"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -92,6 +101,7 @@ export const sessionPlayers = pgTable(
       .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
     finishPosition: integer("finish_position"), // nullable: auto-calculated when session closes
+    seatOrder: integer("seat_order"), // nullable: 0-based clockwise table order (drives BB/SB inference)
     buyIn: integer("buy_in"),
     cashOut: integer("cash_out"),
     joinedAt: timestamp("joined_at", { withTimezone: true }),

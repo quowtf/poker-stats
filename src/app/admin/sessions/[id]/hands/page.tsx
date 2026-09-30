@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 const HAND_TYPES = [
@@ -22,11 +22,13 @@ type SessionPlayer = {
   playerName: string;
   playerNickname: string | null;
   finishPosition: number | null;
+  seatOrder: number | null;
 };
 
 type HandPlayerState = {
   playerId: string;
   name: string;
+  seatOrder: number | null;
   participated: boolean;
   wentAllIn: boolean;
   won: boolean;
@@ -34,6 +36,47 @@ type HandPlayerState = {
   isOut: boolean;
   role: "dealer" | "sb" | null; // D(=BB) or SB
 };
+
+/**
+ * Active (not-out) players sorted by seatOrder (clockwise around the table).
+ */
+function activeInSeatOrder(states: HandPlayerState[]): HandPlayerState[] {
+  return states
+    .filter((p) => !p.isOut)
+    .sort((a, b) => (a.seatOrder ?? 0) - (b.seatOrder ?? 0));
+}
+
+/**
+ * Next active seat to the RIGHT (house rotation direction for the button):
+ * counter-clockwise = previous seatOrder, wrapping. Skips empty/eliminated.
+ */
+function seatToRight(
+  states: HandPlayerState[],
+  fromPlayerId: string | null
+): string | null {
+  const active = activeInSeatOrder(states);
+  if (active.length === 0) return null;
+  if (fromPlayerId === null) return active[0].playerId;
+  const idx = active.findIndex((p) => p.playerId === fromPlayerId);
+  if (idx === -1) return active[0].playerId;
+  return active[(idx - 1 + active.length) % active.length].playerId;
+}
+
+/**
+ * Next active seat to the LEFT (clockwise = next seatOrder, wrapping).
+ * The small blind sits to the dealer's LEFT. Skips empty/eliminated.
+ */
+function seatToLeft(
+  states: HandPlayerState[],
+  fromPlayerId: string | null
+): string | null {
+  const active = activeInSeatOrder(states);
+  if (active.length === 0) return null;
+  if (fromPlayerId === null) return active[0].playerId;
+  const idx = active.findIndex((p) => p.playerId === fromPlayerId);
+  if (idx === -1) return active[0].playerId;
+  return active[(idx + 1) % active.length].playerId;
+}
 
 type SavedHand = {
   handNumber: number;
@@ -44,6 +87,8 @@ type SavedHand = {
 
 export default function HandsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const initialDealerParam = searchParams.get("dealer");
   const sessionId = params.id as string;
 
   const [playerStates, setPlayerStates] = useState<HandPlayerState[]>([]);
@@ -57,6 +102,8 @@ export default function HandsPage() {
   const [substituteTarget, setSubstituteTarget] = useState<string | null>(null);
   const [editingHand, setEditingHand] = useState<number | null>(null);
   const [winningHandType, setWinningHandType] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -87,7 +134,7 @@ export default function HandsPage() {
           const elims = hand.players.filter((p: { eliminated: boolean }) => p.eliminated).length;
           savedList.push({
             handNumber: hand.handNumber,
-            winner: winner?.playerNickname || winner?.playerName || "?",
+            winner: winner?.playerName || "?",
             allIns,
             eliminations: elims,
           });
@@ -101,7 +148,10 @@ export default function HandsPage() {
         // Init player states
         const states: HandPlayerState[] = sessionData.players.map((p: SessionPlayer) => ({
           playerId: p.playerId,
-          name: p.playerNickname || p.playerName,
+          // Use the REAL name here (not the nickname) to reduce the recorder's
+          // cognitive load — no need to map "Don Caguengue" → who is that tonight.
+          name: p.playerName,
+          seatOrder: p.seatOrder,
           participated: !eliminatedIds.has(p.playerId),
           wentAllIn: false,
           won: false,
@@ -109,6 +159,28 @@ export default function HandsPage() {
           isOut: eliminatedIds.has(p.playerId),
           role: null,
         }));
+
+        // ─── Auto-assign Dealer/SB for the NEXT hand ────────────────────────
+        // First hand → dealer = the initial dealer picked in setup (?dealer=).
+        // Later hands → dealer rotates to the next active seat after the
+        // previous hand's dealer. SB is always the next active seat after the
+        // dealer (clockwise), skipping empty/eliminated seats.
+        let dealerId: string | null = null;
+        if (handsData.length === 0) {
+          dealerId = initialDealerParam;
+        } else {
+          // Button rotates to the dealer's right each hand.
+          const prevDealerId = handsData[handsData.length - 1]?.dealerId ?? null;
+          dealerId = seatToRight(states, prevDealerId);
+        }
+        // Guard: dealer must be an active player. SB sits to the dealer's left.
+        if (dealerId && states.some((s) => s.playerId === dealerId && !s.isOut)) {
+          const sbId = seatToLeft(states, dealerId);
+          for (const s of states) {
+            if (s.playerId === dealerId) s.role = "dealer";
+            else if (s.playerId === sbId) s.role = "sb";
+          }
+        }
 
         setPlayerStates(states);
         setLoading(false);
@@ -166,17 +238,6 @@ export default function HandsPage() {
     });
   }
 
-  function addDrink(idx: number) {
-    setPlayerStates((prev) => {
-      const next = [...prev];
-      const p = { ...next[idx] };
-      if (p.isOut) return prev;
-      p.drinks++;
-      next[idx] = p;
-      return next;
-    });
-  }
-
   // Tap on name cycles role: null -> dealer -> sb -> null
   function cycleRole(idx: number) {
     setPlayerStates((prev) => {
@@ -219,6 +280,40 @@ export default function HandsPage() {
       next[idx] = p;
       return next;
     });
+  }
+
+  // ─── Reorder seats (table order) ──────────────────────────────────────────
+
+  // Move a player up/down in the seat order. Operates on the full list
+  // (including eliminated players) so seatOrder mirrors the physical table.
+  function movePlayer(idx: number, direction: -1 | 1) {
+    setPlayerStates((prev) => {
+      const target = idx + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  }
+
+  async function saveOrder() {
+    setSavingOrder(true);
+    setError("");
+    const res = await fetch(`/api/poker/sessions/${sessionId}/order`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playerIds: playerStates.map((p) => p.playerId) }),
+    });
+
+    if (res.ok) {
+      setReordering(false);
+      setSuccess("Orden de mesa guardado ✓");
+      setTimeout(() => setSuccess(""), 2000);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Error al guardar el orden");
+    }
+    setSavingOrder(false);
   }
 
   // ─── Save hand ──────────────────────────────────────────────────────────
@@ -288,9 +383,12 @@ export default function HandsPage() {
       ]);
       setHandCount(newHandNum);
 
-      // Reset for next hand — mark newly eliminated (all-in + not won)
-      setPlayerStates((prev) =>
-        prev.map((p) => {
+      // Reset for next hand — mark newly eliminated (all-in + not won),
+      // then rotate Dealer/SB to the next active seats (clockwise).
+      const justDealerId = dealerPlayer?.playerId ?? null;
+      setPlayerStates((prev) => {
+        // 1) Apply eliminations and clear per-hand flags.
+        const reset = prev.map((p) => {
           const wasEliminated = p.wentAllIn && !p.won && p.participated && !p.isOut;
           return {
             ...p,
@@ -299,10 +397,22 @@ export default function HandsPage() {
             wentAllIn: false,
             won: false,
             drinks: 0,
-            role: null,
+            role: null as HandPlayerState["role"],
           };
-        })
-      );
+        });
+
+        // 2) Rotate the button to the right: next dealer = active seat to the
+        // right of whoever just had it. SB = the seat to the dealer's left.
+        const nextDealerId = seatToRight(reset, justDealerId);
+        if (nextDealerId) {
+          const nextSbId = seatToLeft(reset, nextDealerId);
+          for (const p of reset) {
+            if (p.playerId === nextDealerId) p.role = "dealer";
+            else if (p.playerId === nextSbId) p.role = "sb";
+          }
+        }
+        return reset;
+      });
       setWinningHandType(null);
 
       setSuccess(`Mano #${newHandNum} guardada ✓`);
@@ -536,12 +646,20 @@ export default function HandsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {handCount > 0 && editingHand === null && (
+          {handCount > 0 && editingHand === null && !reordering && (
             <button
               onClick={loadPreviousHand}
               className="text-xs text-gray-400 hover:text-white rounded bg-gray-800 px-2 py-1"
             >
               ← Editar anterior
+            </button>
+          )}
+          {editingHand === null && !reordering && (
+            <button
+              onClick={() => setReordering(true)}
+              className="text-xs text-gray-400 hover:text-white rounded bg-gray-800 px-2 py-1"
+            >
+              ⇅ Reordenar
             </button>
           )}
           {editingHand !== null && editingHand > 1 && (
@@ -566,15 +684,79 @@ export default function HandsPage() {
         </div>
       </div>
 
+      {/* Reorder mode — set the clockwise table order with up/down arrows */}
+      {reordering && (
+        <div className="space-y-2">
+          <div className="rounded-lg bg-gray-900/60 p-3 text-xs text-gray-400">
+            Ordena a los jugadores según su asiento en la mesa (sentido de las
+            manecillas). El primero es el asiento 1. Esto se usará para asignar
+            automáticamente el BB y su SB a la izquierda.
+          </div>
+
+          <div className="space-y-1">
+            {playerStates.map((p, idx) => (
+              <div
+                key={p.playerId}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+                  p.isOut ? "bg-gray-900/40" : "bg-gray-900"
+                }`}
+              >
+                <span className="w-6 text-center text-xs text-gray-500">{idx + 1}</span>
+                <span
+                  className={`flex-1 truncate text-sm font-medium ${
+                    p.isOut ? "text-gray-600 line-through" : "text-white"
+                  }`}
+                >
+                  {p.name}
+                  {p.isOut && <span className="ml-1 text-[10px] text-gray-600">(fuera)</span>}
+                </span>
+                <button
+                  onClick={() => movePlayer(idx, -1)}
+                  disabled={idx === 0}
+                  className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-700 text-gray-300 transition active:scale-90 disabled:opacity-30"
+                  aria-label="Subir"
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={() => movePlayer(idx, 1)}
+                  disabled={idx === playerStates.length - 1}
+                  className="flex h-8 w-8 items-center justify-center rounded-md bg-gray-700 text-gray-300 transition active:scale-90 disabled:opacity-30"
+                  aria-label="Bajar"
+                >
+                  ↓
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={saveOrder}
+              disabled={savingOrder}
+              className="flex-1 rounded-lg bg-emerald-600 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
+            >
+              {savingOrder ? "Guardando..." : "Guardar orden"}
+            </button>
+            <button
+              onClick={() => { setReordering(false); window.location.reload(); }}
+              className="rounded-lg border border-gray-700 px-4 py-3 text-sm text-gray-400"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Active players grid */}
+      {!reordering && (
       <div className="space-y-1">
         {/* Column headers */}
-        <div className="grid grid-cols-[1fr_2.5rem_2.5rem_2.5rem_2.5rem] gap-1 px-2 text-center text-xs text-gray-500">
+        <div className="grid grid-cols-[1fr_2.5rem_2.5rem_2.5rem] gap-1 px-2 text-center text-xs text-gray-500">
           <span className="text-left">Jugador (tap = D/SB)</span>
           <span>In</span>
           <span>A-I</span>
           <span>🏆</span>
-          <span>🍺</span>
         </div>
 
         {activePlayers.map((p) => {
@@ -582,7 +764,7 @@ export default function HandsPage() {
           return (
             <div
               key={p.playerId}
-              className={`grid grid-cols-[1fr_2.5rem_2.5rem_2.5rem_2.5rem] items-center gap-1 rounded-lg px-2 py-2 ${
+              className={`grid grid-cols-[1fr_2.5rem_2.5rem_2.5rem] items-center gap-1 rounded-lg px-2 py-2 ${
                 p.participated ? "bg-gray-900" : "bg-gray-900/40"
               }`}
             >
@@ -633,18 +815,11 @@ export default function HandsPage() {
               >
                 W
               </button>
-
-              {/* Drinks */}
-              <button
-                onClick={() => addDrink(idx)}
-                className="mx-auto flex h-8 w-8 items-center justify-center rounded-md text-sm bg-gray-700 text-gray-500 transition active:scale-90"
-              >
-                {p.drinks > 0 ? p.drinks : "+"}
-              </button>
             </div>
           );
         })}
       </div>
+      )}
 
       {/* Winning hand type selector — shows when a winner is marked */}
       {playerStates.some((p) => p.won && !p.isOut) && (
@@ -730,18 +905,20 @@ export default function HandsPage() {
         <p className="rounded bg-emerald-900/50 p-2 text-center text-sm text-emerald-300">{success}</p>
       )}
 
-      {/* Save hand button */}
-      <button
-        onClick={editingHand !== null ? saveEditedHand : saveHand}
-        disabled={saving || activePlayers.length < 2}
-        className="fixed bottom-6 left-4 right-4 mx-auto max-w-lg rounded-xl bg-emerald-600 py-4 text-center text-lg font-bold text-white shadow-lg transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
-      >
-        {saving
-          ? "Guardando..."
-          : editingHand !== null
-          ? `Actualizar Mano #${editingHand}`
-          : `Guardar Mano #${handCount + 1}`}
-      </button>
+      {/* Save hand button — hidden while reordering seats */}
+      {!reordering && (
+        <button
+          onClick={editingHand !== null ? saveEditedHand : saveHand}
+          disabled={saving || activePlayers.length < 2}
+          className="fixed bottom-6 left-4 right-4 mx-auto max-w-lg rounded-xl bg-emerald-600 py-4 text-center text-lg font-bold text-white shadow-lg transition hover:bg-emerald-500 active:scale-[0.98] disabled:opacity-50"
+        >
+          {saving
+            ? "Guardando..."
+            : editingHand !== null
+            ? `Actualizar Mano #${editingHand}`
+            : `Guardar Mano #${handCount + 1}`}
+        </button>
+      )}
 
       {/* Saved hands log */}
       {savedHands.length > 0 && (

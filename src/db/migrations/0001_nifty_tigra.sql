@@ -1,0 +1,1 @@
+ALTER TABLE "session_players" ADD COLUMN "seat_order" integer;

@@ -3,6 +3,15 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import StackedChart from "../dashboard/sessions/[id]/StackedChart";
+import Scoreboard from "./Scoreboard";
+import PreGameShow, { type PreGameCard } from "./PreGameShow";
+import PreGameMesa from "./PreGameMesa";
+import RankingTable from "./RankingTable";
+import NewsTicker from "./NewsTicker";
+import HandSpotlight from "./HandSpotlight";
+
+// How long the full-screen hand spotlight stays up after a new round.
+const HAND_SPOTLIGHT_MS = 8000;
 
 type RankingEntry = {
   playerId: string;
@@ -13,6 +22,7 @@ type RankingEntry = {
   handsFolded: number;
   allIns: number;
   isEliminated: boolean;
+  seatOrder: number | null;
 };
 
 type Insight = {
@@ -21,6 +31,16 @@ type Insight = {
   message: string;
   type: string;
   createdAt: string;
+};
+
+type ScoreboardData = {
+  playersAlive: number;
+  playersOut: number;
+  totalPlayers: number;
+  totalAllIns: number;
+  totalEliminations: number;
+  leader: { playerId: string; name: string; handsWon: number } | null;
+  topKiller: { playerId: string; name: string; kills: number } | null;
 };
 
 type LiveData = {
@@ -32,18 +52,30 @@ type LiveData = {
     playedAt: string;
     playerCount: number;
     handCount: number;
+    startedAt: string;
+    lastHandAt: string | null;
+    dealerId: string | null;
+    sbId: string | null;
+    headsUpMode: "natura" | "best_of_5" | "best_of_3";
   } | null;
+  scoreboard: ScoreboardData;
   ranking: RankingEntry[];
+  seatedPlayers: RankingEntry[];
   insights: Insight[];
 };
 
 export default function LivePage() {
   const [data, setData] = useState<LiveData | null>(null);
-  const [insightIndex, setInsightIndex] = useState(0);
+  const [pregameCards, setPregameCards] = useState<PreGameCard[] | null>(null);
+  const [pregamePhase, setPregamePhase] = useState<0 | 1>(0); // 0 = mesa, 1 = spotlights
   const [showWinner, setShowWinner] = useState(false);
+  // When true, the just-played hand's insights take the full screen (8s).
+  const [handSpotlight, setHandSpotlight] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const insightRotateRef = useRef<NodeJS.Timeout | null>(null);
+  const spotlightTimerRef = useRef<NodeJS.Timeout | null>(null);
   const prevHandCount = useRef(0);
+  // Guard so the very first load doesn't trigger a spotlight retroactively.
+  const initializedHandCount = useRef(false);
 
   useEffect(() => {
     async function fetchLive() {
@@ -52,9 +84,21 @@ export default function LivePage() {
         const json: LiveData = await res.json();
         setData(json);
 
-        if (json.session && json.session.handCount !== prevHandCount.current) {
-          prevHandCount.current = json.session.handCount;
-          setInsightIndex(0);
+        const handCount = json.session?.handCount ?? 0;
+        if (handCount !== prevHandCount.current) {
+          const increased = handCount > prevHandCount.current;
+          prevHandCount.current = handCount;
+          // Only fire the big spotlight on a real round increment while playing
+          // (skip the initial load and pre-game round 0).
+          if (initializedHandCount.current && increased && handCount > 0) {
+            setHandSpotlight(true);
+            if (spotlightTimerRef.current) clearTimeout(spotlightTimerRef.current);
+            spotlightTimerRef.current = setTimeout(
+              () => setHandSpotlight(false),
+              HAND_SPOTLIGHT_MS
+            );
+          }
+          initializedHandCount.current = true;
         }
 
         // Show winner screen
@@ -76,17 +120,31 @@ export default function LivePage() {
     }
 
     fetchLive();
-    intervalRef.current = setInterval(fetchLive, 5000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    intervalRef.current = setInterval(fetchLive, 10000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (spotlightTimerRef.current) clearTimeout(spotlightTimerRef.current);
+    };
   }, [showWinner]);
 
+  // Fetch pre-game insight cards once, while live and no hands played yet.
+  const isPreGame = !!data?.isLive && data.session?.handCount === 0;
   useEffect(() => {
-    if (!data?.insights || data.insights.length <= 1) return;
-    insightRotateRef.current = setInterval(() => {
-      setInsightIndex((prev) => (prev + 1) % (data.insights.length || 1));
-    }, 3000);
-    return () => { if (insightRotateRef.current) clearInterval(insightRotateRef.current); };
-  }, [data?.insights?.length]);
+    if (!isPreGame || pregameCards !== null) return;
+    fetch("/api/poker/live/pregame")
+      .then((r) => r.json())
+      .then((json) => setPregameCards(json.cards ?? []))
+      .catch(() => setPregameCards([]));
+  }, [isPreGame, pregameCards]);
+
+  // Pre-game sequence: show the mesa (with blind structure) first, then advance
+  // to the predictive spotlights.
+  useEffect(() => {
+    if (!isPreGame) { setPregamePhase(0); return; }
+    if (pregamePhase !== 0) return;
+    const t = setTimeout(() => setPregamePhase(1), 12000);
+    return () => clearTimeout(t);
+  }, [isPreGame, pregamePhase]);
 
   // ─── Not live ──────────────────────────────────────────────────────────────
 
@@ -110,129 +168,44 @@ export default function LivePage() {
     return <WinnerSlider winner={data.winner} winnerName={winnerName} sessionId={data.session!.id} handCount={data.session!.handCount} />;
   }
 
-  // ─── Live view ─────────────────────────────────────────────────────────────
+  // ─── Pre-game (session live, no hands played yet) ───────────────────────────
+  // Phase 0: the table + blind structure. Phase 1: predictive spotlights.
 
-  const { ranking, insights, session } = data;
-  const alivePlayers = ranking.filter((r) => !r.isEliminated);
-  const eliminatedPlayers = ranking.filter((r) => r.isEliminated);
-  const currentInsight = insights[insightIndex] || null;
+  if (isPreGame) {
+    if (pregamePhase === 0) {
+      return <PreGameMesa players={data.seatedPlayers ?? []} />;
+    }
+    return <PreGameShow cards={pregameCards ?? []} />;
+  }
+
+  // ─── Hand spotlight: 8s full-screen after each new round ────────────────────
+
+  if (handSpotlight) {
+    return <HandSpotlight insights={data.insights} round={data.session.handCount} />;
+  }
+
+  // ─── Live view (Phase 3): ranking table + news ticker ───────────────────────
+
+  const { ranking, session, insights, scoreboard } = data;
 
   return (
-    <div className="flex min-h-screen flex-col bg-black text-white p-5">
-      {/* Header */}
-      <header className="mb-3 flex items-center justify-between">
-        <span className="text-3xl font-black text-emerald-400">
-          Ronda #{session.handCount}
-        </span>
-        <h1 className="mb-2 text-center text-3xl font-bold">Poker League</h1>
-        <div className="text-base text-gray-500">
-          ♥️♣️♦️♠️
-        </div>
-      </header>
+    <div className="relative flex h-screen flex-col overflow-hidden bg-black text-white">
+      {/* TV-style corner scoreboards (absolute overlays) */}
+      <Scoreboard
+        round={session.handCount}
+        startedAt={session.startedAt}
+        playersAlive={scoreboard.playersAlive}
+        headsUpMode={session.headsUpMode}
+      />
 
-      {/* Stats table header */}
-      <div className="grid grid-cols-[2.5rem_1fr_3.5rem_3.5rem_3.5rem_3.5rem] gap-1 px-1 mb-1 text-xs text-gray-600 uppercase tracking-wider">
-        <span></span>
-        <span></span>
-        <span className="text-center">Fold</span>
-        <span className="text-center">Play</span>
-        <span className="text-center">A-I</span>
-        <span className="text-center">Win</span>
+      {/* Ranking table — takes the remaining height. Top padding clears the
+          corner scoreboard panels. */}
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-2 pt-24">
+        <RankingTable players={ranking} />
       </div>
 
-      {/* Ranking rows */}
-      <div className="flex-1 space-y-1">
-        {alivePlayers.map((entry, i) => {
-          const displayName = entry.nickname || entry.name;
-          return (
-            <div
-              key={entry.playerId}
-              className="grid grid-cols-[2.5rem_1fr_3.5rem_3.5rem_3.5rem_3.5rem] items-center gap-1 rounded-lg bg-gray-900/60 px-1 py-2 transition-all duration-500"
-            >
-              {/* Position */}
-              <span
-                className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-black ${
-                  i === 0
-                    ? "bg-yellow-500 text-black"
-                    : i === 1
-                    ? "bg-gray-300 text-black"
-                    : i === 2
-                    ? "bg-amber-700 text-white"
-                    : "bg-gray-800 text-gray-400"
-                }`}
-              >
-                {i + 1}
-              </span>
-
-              {/* Name */}
-              <span className="truncate text-xl font-bold pl-2">
-                {displayName}
-              </span>
-
-              {/* Fold count */}
-              <span className="text-center text-lg text-gray-500">
-                {entry.handsFolded}
-              </span>
-
-              {/* Played count */}
-              <span className="text-center text-lg text-gray-400">
-                {entry.handsPlayed}
-              </span>
-
-              {/* All-in count */}
-              <span className={`text-center text-lg ${entry.allIns > 0 ? "text-orange-400" : "text-gray-600"}`}>
-                {entry.allIns}
-              </span>
-
-              {/* Wins */}
-              <span className="text-center text-lg font-bold text-emerald-400">
-                {entry.handsWon}
-              </span>
-            </div>
-          );
-        })}
-
-        {/* Eliminated */}
-        {eliminatedPlayers.length > 0 && (
-          <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-800 mt-1">
-            {eliminatedPlayers.map((entry) => (
-              <span
-                key={entry.playerId}
-                className="text-sm text-gray-600 line-through"
-              >
-                {entry.nickname || entry.name}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Insights - bottom */}
-      {currentInsight && (
-        <div className="mt-3 border-t border-gray-800 pt-3">
-          <div
-            key={currentInsight.id}
-            className="flex items-center justify-center gap-3 animate-fade-in"
-          >
-            <span className="text-4xl">{currentInsight.emoji}</span>
-            <p className="text-lg font-semibold text-gray-200">
-              {currentInsight.message}
-            </p>
-          </div>
-          {insights.length > 1 && (
-            <div className="mt-2 flex justify-center gap-2">
-              {insights.map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1.5 rounded-full transition-all ${
-                    i === insightIndex ? "bg-emerald-400 w-4" : "bg-gray-700 w-1.5"
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* News ticker — big bottom band with hand-by-hand insights */}
+      <NewsTicker insights={insights} />
     </div>
   );
 }
@@ -261,11 +234,8 @@ function WinnerSlider({
     }[];
   } | null>(null);
 
-  // Auto advance to chart after 8 seconds
-  useEffect(() => {
-    const timer = setTimeout(() => setSlide(1), 8000);
-    return () => clearTimeout(timer);
-  }, []);
+  // No auto-advance: the winner screen stays put so players have time to
+  // celebrate and take a photo. It only advances on tap.
 
   // Load recap data for chart
   useEffect(() => {
@@ -287,7 +257,7 @@ function WinnerSlider({
             <span>{winner.handsWon} ganadas</span>
             <span>{winner.allIns} all-ins</span>
           </div>
-          <p className="mt-12 text-sm text-gray-700 animate-pulse">tap para ver resumen →</p>
+          <p className="mt-12 text-sm text-gray-600">📸 tómense la foto — toca la pantalla para ver el resumen →</p>
         </div>
         {/* Dots */}
         <div className="absolute bottom-8 flex gap-2">

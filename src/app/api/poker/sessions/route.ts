@@ -14,7 +14,20 @@ const createSessionSchema = z.object({
   playerIds: z
     .array(z.string().uuid())
     .min(2, "Minimum 2 players required")
-    .max(9, "Maximum 9 players allowed"),
+    .max(10, "Maximum 10 players allowed"),
+  // Optional explicit seat assignment (0-based clockwise). When omitted,
+  // seatOrder falls back to the position of the player in `playerIds`.
+  seats: z
+    .array(
+      z.object({
+        playerId: z.string().uuid(),
+        seat: z.number().int().min(0).max(9),
+      })
+    )
+    .optional(),
+  // Heads-up (1v1 final) resolution mode. Informative — drives blinds shown at
+  // 2 players. Defaults to "natura".
+  headsUpMode: z.enum(["natura", "best_of_5", "best_of_3"]).optional(),
   notes: z.string().max(500).nullable().optional(),
 });
 
@@ -85,8 +98,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const { playedAt, playerIds, notes } = parsed.data;
+    const { playedAt, playerIds, seats, headsUpMode, notes } = parsed.data;
     const date = playedAt || new Date().toISOString().split("T")[0];
+
+    // Build seat lookup and validate seats (belong to selected players, unique).
+    const seatByPlayer = new Map<string, number>();
+    if (seats) {
+      for (const { playerId, seat } of seats) {
+        if (!playerIds.includes(playerId)) {
+          return NextResponse.json(
+            { error: "Seat assigned to a player not in the session", playerId },
+            { status: 400 }
+          );
+        }
+        if ([...seatByPlayer.values()].includes(seat)) {
+          return NextResponse.json(
+            { error: "Duplicate seat number", seat },
+            { status: 400 }
+          );
+        }
+        seatByPlayer.set(playerId, seat);
+      }
+    }
 
     // Verify all player IDs exist
     const existingPlayers = await db
@@ -116,16 +149,20 @@ export async function POST(request: Request) {
       .values({
         playedAt: date,
         playerCount: playerIds.length,
+        headsUpMode: headsUpMode ?? "natura",
         notes: notes ?? null,
       })
       .returning();
 
-    // Create session_players (no finishPosition yet — session is open)
+    // Create session_players (no finishPosition yet — session is open).
+    // seatOrder = explicit seat when provided, else the position in the array
+    // (0-based clockwise table order).
     await db.insert(sessionPlayers).values(
-      playerIds.map((playerId) => ({
+      playerIds.map((playerId, index) => ({
         sessionId: newSession.id,
         playerId,
         finishPosition: null,
+        seatOrder: seatByPlayer.get(playerId) ?? index,
         buyIn: 100,
         cashOut: null,
       }))
@@ -137,10 +174,12 @@ export async function POST(request: Request) {
         playerId: sessionPlayers.playerId,
         playerName: players.name,
         playerNickname: players.nickname,
+        seatOrder: sessionPlayers.seatOrder,
       })
       .from(sessionPlayers)
       .innerJoin(players, eq(sessionPlayers.playerId, players.id))
-      .where(eq(sessionPlayers.sessionId, newSession.id));
+      .where(eq(sessionPlayers.sessionId, newSession.id))
+      .orderBy(sessionPlayers.seatOrder);
 
     return NextResponse.json(
       { ...newSession, players: createdPlayers },

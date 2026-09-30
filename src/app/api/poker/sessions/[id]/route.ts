@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sessions, sessionPlayers, players } from "@/db/schema";
 import { createSessionSchema } from "@/lib/validations";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export async function GET(
   _request: Request,
@@ -26,6 +26,7 @@ export async function GET(
         playerName: players.name,
         playerNickname: players.nickname,
         finishPosition: sessionPlayers.finishPosition,
+        seatOrder: sessionPlayers.seatOrder,
         buyIn: sessionPlayers.buyIn,
         cashOut: sessionPlayers.cashOut,
         joinedAt: sessionPlayers.joinedAt,
@@ -34,7 +35,12 @@ export async function GET(
       .from(sessionPlayers)
       .innerJoin(players, eq(sessionPlayers.playerId, players.id))
       .where(eq(sessionPlayers.sessionId, id))
-      .orderBy(sessionPlayers.finishPosition);
+      // Seat order drives table position during play; fall back to finish position
+      // for older sessions created before seatOrder existed.
+      .orderBy(
+        sql`${sessionPlayers.seatOrder} asc nulls last`,
+        sessionPlayers.finishPosition
+      );
 
     return NextResponse.json({ ...session, players: sessionPlayersList });
   } catch (error) {
@@ -90,10 +96,11 @@ export async function PUT(
     // Delete old session_players and recreate
     await db.delete(sessionPlayers).where(eq(sessionPlayers.sessionId, id));
 
-    const sessionPlayerValues = playerInputs.map((p) => ({
+    const sessionPlayerValues = playerInputs.map((p, index) => ({
       sessionId: id,
       playerId: p.playerId,
       finishPosition: p.finishPosition,
+      seatOrder: index, // preserve incoming order as seat order
       buyIn: p.buyIn ?? null,
       cashOut: p.cashOut ?? null,
       drinks: p.drinks ?? null,
@@ -108,6 +115,7 @@ export async function PUT(
         playerName: players.name,
         playerNickname: players.nickname,
         finishPosition: sessionPlayers.finishPosition,
+        seatOrder: sessionPlayers.seatOrder,
         buyIn: sessionPlayers.buyIn,
         cashOut: sessionPlayers.cashOut,
       })

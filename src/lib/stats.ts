@@ -1,18 +1,7 @@
 import { db } from "@/db";
 import { sessions, sessionPlayers, players, hands, handPlayers } from "@/db/schema";
 import { desc, eq, sql, count, and } from "drizzle-orm";
-
-// Points system: 1st=10, 2nd=7, 3rd=5, 4th=3, 5th=2, 6th+=1
-function positionPoints(position: number): number {
-  switch (position) {
-    case 1: return 10;
-    case 2: return 7;
-    case 3: return 5;
-    case 4: return 3;
-    case 5: return 2;
-    default: return 1;
-  }
-}
+import { positionPoints, BEER_POINT_VALUE, MIN_THRESHOLDS } from "@/lib/points";
 
 export type LeaderboardEntry = {
   playerId: string;
@@ -25,9 +14,6 @@ export type LeaderboardEntry = {
   pointsPerSession: number;
   averageFinish: number;
 };
-
-// Each beer drunk adds a tiny bonus to the leaderboard (just for fun)
-const BEER_POINT_VALUE = 0.01;
 
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const allResults = await db
@@ -442,7 +428,7 @@ export async function getRivalries(): Promise<Rivalry[]> {
   // Convert to rivalries, filter for min 5 shared sessions
   const rivalries: Rivalry[] = [];
   for (const pair of pairStats.values()) {
-    if (pair.shared < 5) continue;
+    if (pair.shared < MIN_THRESHOLDS.rivalrySharedSessions) continue;
 
     const total = pair.aWins + pair.bWins;
     const ratio = pair.aWins / total;
@@ -577,7 +563,7 @@ export async function getFunLabels(): Promise<FunLabel[]> {
 
   // 🐊 El Sobreviviente (highest all-in survival from hands, fallback to heads-up rate)
   const handStatsData = await getHandStats();
-  const allInSurvivors = handStatsData.filter((s) => s.allInCount >= 3);
+  const allInSurvivors = handStatsData.filter((s) => s.allInCount >= MIN_THRESHOLDS.allInSurvival);
   if (allInSurvivors.length > 0) {
     const bestSurvivor = allInSurvivors.sort(
       (a, b) => b.allInSurvivalRate - a.allInSurvivalRate
@@ -757,8 +743,8 @@ export async function getHandFunLabels(): Promise<FunLabel[]> {
 
   if (handStats.length === 0) return labels;
 
-  // 🐊 El Sobreviviente (highest all-in survival rate, min 3 all-ins)
-  const survivors = handStats.filter((s) => s.allInCount >= 3);
+  // 🐊 El Sobreviviente (highest all-in survival rate, min all-ins threshold)
+  const survivors = handStats.filter((s) => s.allInCount >= MIN_THRESHOLDS.allInSurvival);
   if (survivors.length > 0) {
     const survivor = survivors.sort(
       (a, b) => b.allInSurvivalRate - a.allInSurvivalRate
@@ -771,8 +757,8 @@ export async function getHandFunLabels(): Promise<FunLabel[]> {
     });
   }
 
-  // 🎯 El Francotirador (best hand win rate, min 10 hands)
-  const snipers = handStats.filter((s) => s.handsPlayed >= 10);
+  // 🎯 El Francotirador (best hand win rate, min hands threshold)
+  const snipers = handStats.filter((s) => s.handsPlayed >= MIN_THRESHOLDS.winRateHands);
   if (snipers.length > 0) {
     const sniper = snipers.sort((a, b) => b.winRate - a.winRate)[0];
     labels.push({
@@ -795,7 +781,7 @@ export async function getHandFunLabels(): Promise<FunLabel[]> {
   }
 
   // 💀 El Kamikaze (most all-ins lost / eliminated after all-in)
-  const kamikazes = handStats.filter((s) => s.allInCount >= 3);
+  const kamikazes = handStats.filter((s) => s.allInCount >= MIN_THRESHOLDS.allInSurvival);
   if (kamikazes.length > 0) {
     const kamikaze = kamikazes.sort(
       (a, b) => a.allInSurvivalRate - b.allInSurvivalRate

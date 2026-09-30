@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { sessions, sessionPlayers, players, hands, handPlayers } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
+import { positionPoints, BEER_POINT_VALUE, MIN_THRESHOLDS } from "@/lib/points";
 
 export type LadderEntry = {
   rank: number;
@@ -59,19 +60,6 @@ async function getHandData() {
     .innerJoin(players, eq(handPlayers.playerId, players.id));
 }
 
-// ─── Points system ───────────────────────────────────────────────────────────
-
-function positionPoints(position: number): number {
-  switch (position) {
-    case 1: return 10;
-    case 2: return 7;
-    case 3: return 5;
-    case 4: return 3;
-    case 5: return 2;
-    default: return 1;
-  }
-}
-
 // ─── Ladder generators ───────────────────────────────────────────────────────
 
 const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
@@ -93,7 +81,7 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
     }
     const entries = [...map.entries()]
       .map(([id, d]) => {
-        const total = Math.round((d.points + (beers.get(id) || 0) * 0.01) * 100) / 100;
+        const total = Math.round((d.points + (beers.get(id) || 0) * BEER_POINT_VALUE) * 100) / 100;
         return { playerId: id, name: d.name, nickname: d.nickname, value: total, detail: `${d.sessions} sesiones · ${beers.get(id) || 0}🍺` };
       })
       .sort((a, b) => b.value - a.value)
@@ -162,7 +150,7 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
       map.set(r.playerId, e);
     }
     const entries = [...map.entries()]
-      .filter(([_, d]) => d.positions.length >= 3)
+      .filter(([_, d]) => d.positions.length >= MIN_THRESHOLDS.volatilitySessions)
       .map(([id, d]) => {
         const avg = d.positions.reduce((s, p) => s + p, 0) / d.positions.length;
         const variance = d.positions.reduce((s, p) => s + (p - avg) ** 2, 0) / d.positions.length;
@@ -184,7 +172,7 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
       map.set(r.playerId, e);
     }
     const entries = [...map.entries()]
-      .filter(([_, d]) => d.positions.length >= 3)
+      .filter(([_, d]) => d.positions.length >= MIN_THRESHOLDS.volatilitySessions)
       .map(([id, d]) => {
         const avg = d.positions.reduce((s, p) => s + p, 0) / d.positions.length;
         const variance = d.positions.reduce((s, p) => s + (p - avg) ** 2, 0) / d.positions.length;
@@ -207,7 +195,7 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
       map.set(r.playerId, e);
     }
     const entries = [...map.entries()]
-      .filter(([_, d]) => d.played >= 10)
+      .filter(([_, d]) => d.played >= MIN_THRESHOLDS.winRateHands)
       .map(([id, d]) => {
         const wr = Math.round((d.won / d.played) * 100);
         return {
@@ -263,7 +251,7 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
       map.set(r.playerId, e);
     }
     const entries = [...map.entries()]
-      .filter(([_, d]) => d.allIns >= 3)
+      .filter(([_, d]) => d.allIns >= MIN_THRESHOLDS.allInSurvival)
       .map(([id, d]) => ({ playerId: id, name: d.name, nickname: d.nickname, value: Math.round((d.survived / d.allIns) * 100), detail: `${d.survived}/${d.allIns} all-ins` }))
       .sort((a, b) => b.value - a.value)
       .map((e, i) => ({ ...e, rank: i + 1 }));
@@ -329,7 +317,7 @@ const LADDER_GENERATORS: Record<string, () => Promise<LadderResult>> = {
       map.set(r.playerId, e);
     }
     const entries = [...map.entries()]
-      .filter(([_, d]) => d.total >= 10)
+      .filter(([_, d]) => d.total >= MIN_THRESHOLDS.foldRateHands)
       .map(([id, d]) => ({ playerId: id, name: d.name, nickname: d.nickname, value: Math.round((d.folded / d.total) * 100), detail: `${d.folded}/${d.total} manos` }))
       .sort((a, b) => b.value - a.value)
       .map((e, i) => ({ ...e, rank: i + 1 }));

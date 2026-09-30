@@ -94,6 +94,22 @@ export const createHandSchema = z
     { message: "Exactly one participant must win the hand", path: ["players"] }
   );
 
+// ─── Seat order ──────────────────────────────────────────────────────────────
+
+export const updateSeatOrderSchema = z
+  .object({
+    // playerIds in the desired clockwise table order; index = seatOrder.
+    playerIds: z
+      .array(z.string().uuid())
+      .min(2, "Minimum 2 players required")
+      .max(9, "Maximum 9 players allowed"),
+  })
+  .refine(
+    (data) => new Set(data.playerIds).size === data.playerIds.length,
+    { message: "Player IDs must be unique", path: ["playerIds"] }
+  );
+
 export type CreatePlayerInput = z.infer<typeof createPlayerSchema>;
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export type CreateHandInput = z.infer<typeof createHandSchema>;
+export type UpdateSeatOrderInput = z.infer<typeof updateSeatOrderSchema>;

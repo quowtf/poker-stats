@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type SessionDetail = {
@@ -23,6 +23,8 @@ type SessionDetail = {
 export default function SessionDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialDealer = searchParams.get("dealer");
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -159,9 +161,9 @@ export default function SessionDetailPage() {
           : "📡 Activar Live"}
       </button>
 
-      {/* Hands link */}
+      {/* Hands link — forwards the initial dealer for the first hand */}
       <Link
-        href={`/admin/sessions/${params.id}/hands`}
+        href={`/admin/sessions/${params.id}/hands${initialDealer ? `?dealer=${initialDealer}` : ""}`}
         className="block w-full rounded-lg bg-gray-800 py-3 text-center text-sm font-medium text-emerald-400 transition hover:bg-gray-700"
       >
         🃏 Registrar Manos
