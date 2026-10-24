@@ -15,23 +15,15 @@ import {
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 import StackedChart from "./StackedChart";
+import type { ChartEvent, ChartPlayer, DominionPoint } from "@/lib/chart-types";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
-type ChartEvent = {
-  handNumber: number;
-  playerId: string;
-  playerName: string;
-  type: "allin_win" | "allin_survive" | "elimination" | "strong_hand" | "leader_change";
-  emoji: string;
-  label: string;
-};
-
 type RecapData = {
   session: { id: string; playedAt: string; playerCount: number; totalHands: number };
-  players: { id: string; name: string; color: string; finishPosition: number | null }[];
+  players: ChartPlayer[];
   raceData: { handNumber: number; wins: Record<string, number> }[];
-  dominionSeries: { handNumber: number; values: Record<string, number> }[];
+  dominionSeries: DominionPoint[];
   events: ChartEvent[];
   eliminatedAtHand: Record<string, number>;
   allInAtHands: { playerId: string; handNumber: number }[];

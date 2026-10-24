@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { sessions, sessionPlayers, hands, handPlayers, players, sessionInsights } from "@/db/schema";
+import { sessions, sessionPlayers, hands, handPlayers, players, sessionInsights, HAND_TYPE_LABELS } from "@/db/schema";
+import type { ChartEvent } from "@/lib/chart-types";
 import { eq, asc, desc } from "drizzle-orm";
 
 export async function GET(
@@ -81,17 +82,12 @@ export async function GET(
     }
 
     // Events for markers
-    type ChartEvent = {
-      handNumber: number;
-      playerId: string;
-      playerName: string;
-      type: "allin_win" | "allin_survive" | "elimination" | "strong_hand" | "leader_change";
-      emoji: string;
-      label: string;
-    };
     const events: ChartEvent[] = [];
 
     const strongHands = ["full_house", "four_of_a_kind", "straight_flush", "royal_flush"];
+    // `royal_flush` maps to 👑 in the global hand labels, which collides with the
+    // `leader_change` marker on the chart. Use 💎 for the chart only.
+    const CHART_EMOJI_OVERRIDE: Record<string, string> = { royal_flush: "💎" };
     let prevLeader: string | null = null;
 
     // Dominio: each player starts with weight 1. When eliminated,
@@ -109,16 +105,12 @@ export async function GET(
         if (hp.won) {
           cumulativeWins[hp.playerId] = (cumulativeWins[hp.playerId] || 0) + 1;
           if (hand.winningHandType && strongHands.includes(hand.winningHandType)) {
-            const labels: Record<string, string> = {
-              full_house: "Full", four_of_a_kind: "Póker", straight_flush: "Esc. Color", royal_flush: "Esc. Real",
-            };
-            const emojis: Record<string, string> = {
-              full_house: "🏠", four_of_a_kind: "🍀", straight_flush: "🌈", royal_flush: "👑",
-            };
+            const meta = HAND_TYPE_LABELS[hand.winningHandType];
             events.push({
               handNumber: hand.handNumber, playerId: hp.playerId, playerName: pName,
-              type: "strong_hand", emoji: emojis[hand.winningHandType] || "💎",
-              label: `${pName} gana con ${labels[hand.winningHandType] || "mano fuerte"}`,
+              type: "strong_hand",
+              emoji: CHART_EMOJI_OVERRIDE[hand.winningHandType] || meta?.emoji || "💎",
+              label: `${pName} gana con ${meta?.es || "mano fuerte"}`,
             });
           }
         }
@@ -170,15 +162,22 @@ export async function GET(
 
       // Leader change marker (based on dominion now)
       const leaderEntry = Object.entries(dominion).sort((a, b) => b[1] - a[1])[0];
-      if (leaderEntry && leaderEntry[0] !== prevLeader) {
-        const lName = playerList.find((p) => p.id === leaderEntry[0])?.name || "?";
-        if (prevLeader !== null) {
-          events.push({
-            handNumber: hand.handNumber, playerId: leaderEntry[0], playerName: lName,
-            type: "leader_change", emoji: "👑", label: `${lName} domina la mesa`,
-          });
+      if (leaderEntry) {
+        const leaderId = leaderEntry[0];
+        const leaderValue = leaderEntry[1];
+        // Only a *strict* takeover counts. Without this, ties resolve to an
+        // arbitrary player and the chart flaps a spurious "nuevo líder".
+        const isStrict = prevLeader === null || leaderValue > (dominion[prevLeader] ?? 0);
+        if (leaderId !== prevLeader && isStrict) {
+          const lName = playerList.find((p) => p.id === leaderId)?.name || "?";
+          if (prevLeader !== null) {
+            events.push({
+              handNumber: hand.handNumber, playerId: leaderId, playerName: lName,
+              type: "leader_change", emoji: "👑", label: `${lName} domina la mesa`,
+            });
+          }
+          prevLeader = leaderId;
         }
-        prevLeader = leaderEntry[0];
       }
     }
 

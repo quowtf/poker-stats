@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import StackedChart from "../dashboard/sessions/[id]/StackedChart";
+import type { ChartEvent, DominionPoint } from "@/lib/chart-types";
 import Scoreboard from "./Scoreboard";
 import PreGameShow, { type PreGameCard } from "./PreGameShow";
 import PreGameMesa from "./PreGameMesa";
@@ -224,12 +225,8 @@ function WinnerSlider({
   const [slide, setSlide] = useState(0); // 0 = winner, 1 = chart
   const [recapData, setRecapData] = useState<{
     players: { id: string; name: string; color: string; finishPosition: number | null }[];
-    dominionSeries: { handNumber: number; values: Record<string, number> }[];
-    events: {
-      handNumber: number; playerId: string; playerName: string;
-      type: "allin_win" | "allin_survive" | "elimination" | "strong_hand" | "leader_change";
-      emoji: string; label: string;
-    }[];
+    dominionSeries: DominionPoint[];
+    events: ChartEvent[];
   } | null>(null);
 
   // No auto-advance: the winner screen stays put so players have time to
