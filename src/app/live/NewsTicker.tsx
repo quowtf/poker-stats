@@ -26,7 +26,7 @@ export default function NewsTicker({ insights }: { insights: Insight[] }) {
     if (insights.length <= 1) return;
     const id = setInterval(() => {
       setIndex((prev) => (prev + 1) % insights.length);
-    }, 4000);
+    }, 7000);
     return () => clearInterval(id);
   }, [insights.length]);
 
@@ -35,7 +35,7 @@ export default function NewsTicker({ insights }: { insights: Insight[] }) {
   const current = insights[safeIndex] ?? null;
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-4 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-gray-950 to-black px-6">
+    <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 overflow-hidden rounded-xl border border-emerald-500/30 bg-gradient-to-b from-gray-950 to-black px-6 text-center">
       {/* Live badge */}
       {/* <div className="flex shrink-0 items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1.5">
         <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
@@ -46,24 +46,24 @@ export default function NewsTicker({ insights }: { insights: Insight[] }) {
 
       {/* Insight */}
       {current ? (
-        <div key={current.id} className="animate-fade-in flex min-w-0 flex-1 items-center gap-4">
-          <span className="text-4xl">{current.emoji}</span>
-          <p className="truncate text-3xl font-black text-white">{current.message}</p>
+        <div key={current.id} className="animate-fade-in flex min-w-0 flex-col items-center gap-4">
+          <span className="shrink-0 text-7xl">{current.emoji}</span>
+          <p className="text-6xl font-black leading-tight text-white">{current.message}</p>
         </div>
       ) : (
-        <p className="flex-1 text-xl font-bold text-gray-600">
+        <p className="text-6xl font-bold text-gray-600">
           Analizando la mesa mano a mano...
         </p>
       )}
 
       {/* Progress dots */}
       {insights.length > 1 && (
-        <div className="flex shrink-0 gap-1.5">
+        <div className="flex shrink-0 gap-2">
           {insights.map((ins, i) => (
             <div
               key={ins.id}
-              className={`h-1.5 rounded-full transition-all ${
-                i === safeIndex ? "w-6 bg-emerald-400" : "w-1.5 bg-gray-700"
+              className={`h-2 rounded-full transition-all ${
+                i === safeIndex ? "w-8 bg-emerald-400" : "w-2 bg-gray-700"
               }`}
             />
           ))}

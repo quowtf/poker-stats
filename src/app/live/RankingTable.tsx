@@ -33,7 +33,7 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
     <div className="flex h-full flex-col">
       {/* Column header */}
       <div className="mb-2 grid grid-cols-[7rem_1fr_5rem_5rem_5rem] items-center gap-2 px-4 text-sm font-black uppercase tracking-widest text-gray-600">
-        <span>Foto</span>
+        <span></span>
         <span>Jugador</span>
         <span className="text-center text-gray-500">Fold</span>
         <span className="text-center text-emerald-600">Win</span>
@@ -56,7 +56,7 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
                 src={photo}
                 alt={displayName(p)}
                 referrerPolicy="no-referrer"
-                className="h-24 w-24 rounded-2xl object-cover ring-4 ring-gray-700"
+                className="h-24 w-24 rounded-2xl"
               />
             ) : (
               <span

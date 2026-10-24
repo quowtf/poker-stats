@@ -188,9 +188,14 @@ export default function LivePage() {
   const { ranking, session, insights, scoreboard } = data;
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden bg-black text-white">
-      {/* Top row: scoreboard + news ticker side by side */}
-      <div className="flex shrink-0 items-stretch gap-4 px-6 pt-4">
+    <div className="relative flex h-screen gap-4 overflow-hidden bg-black p-4 text-white">
+      {/* Column 1: ranking table */}
+      <div className="flex min-h-0 w-1/2 flex-col">
+        <RankingTable players={ranking} />
+      </div>
+
+      {/* Column 2: scoreboard on top, insights below */}
+      <div className="flex min-h-0 w-1/2 flex-col gap-4">
         <Scoreboard
           round={session.handCount}
           startedAt={session.startedAt}
@@ -199,12 +204,6 @@ export default function LivePage() {
         />
         <NewsTicker insights={insights} />
       </div>
-
-      {/* Ranking table — takes the remaining height. */}
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-2 pt-4">
-        <RankingTable players={ranking} />
-      </div>
-
     </div>
   );
 }

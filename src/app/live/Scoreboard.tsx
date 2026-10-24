@@ -56,7 +56,7 @@ export default function Scoreboard({ round, startedAt, playersAlive, headsUpMode
   const handsToNext = handsToNextLevel(round);
 
   return (
-    <div className="shrink-0 overflow-hidden rounded-xl border border-gray-700 bg-gray-900/90 shadow-[0_4px_20px_rgba(0,0,0,0.6)]">
+    <div className="shrink-0 self-center overflow-hidden rounded-xl border border-gray-700 bg-gray-900/90 shadow-[0_4px_20px_rgba(0,0,0,0.6)]">
       {/* Row 1: ROUND + elapsed clock */}
       <div className="flex items-stretch">
         <div className="flex items-center bg-emerald-500 px-3">
