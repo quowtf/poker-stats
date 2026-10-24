@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-type Insight = {
-  id: string;
-  emoji: string;
-  message: string;
-  type: string;
-  createdAt: string;
-};
+import type { Insight } from "./types";
 
 /**
  * Full-screen spotlight for the just-played hand's insights. Shown for a few
@@ -32,7 +25,9 @@ export default function HandSpotlight({
     return () => clearInterval(id);
   }, [insights.length]);
 
-  const current = insights[index] || null;
+  const safeIndex =
+    insights.length > 0 ? Math.min(index, insights.length - 1) : 0;
+  const current = insights[safeIndex] ?? null;
 
   return (
     <div className="relative flex h-screen flex-col items-center justify-center overflow-hidden bg-black px-8 text-white">
@@ -65,7 +60,7 @@ export default function HandSpotlight({
             <div
               key={ins.id}
               className={`h-2 rounded-full transition-all duration-300 ${
-                i === index ? "w-8 bg-emerald-400" : "w-2 bg-gray-700"
+                i === safeIndex ? "w-8 bg-emerald-400" : "w-2 bg-gray-700"
               }`}
             />
           ))}

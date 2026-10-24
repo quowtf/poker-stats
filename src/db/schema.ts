@@ -176,12 +176,21 @@ export const insightTypeEnum = pgEnum("insight_type", [
   "milestone",
 ]);
 
+// Scope of an insight: "hand" = generated per hand (persisted, shown in the
+// spotlight + ticker); "table" = rolling, computed live from aggregates (ticker
+// only, not persisted).
+export const insightScopeEnum = pgEnum("insight_scope", ["hand", "table"]);
+
 export const sessionInsights = pgTable("session_insights", {
   id: uuid("id").defaultRandom().primaryKey(),
   sessionId: uuid("session_id")
     .notNull()
     .references(() => sessions.id, { onDelete: "cascade" }),
   handId: uuid("hand_id").references(() => hands.id, { onDelete: "cascade" }),
+  scope: insightScopeEnum("scope").notNull().default("hand"),
+  // Stable rule+entity key (e.g. "fold_streak:<playerId>") used to avoid
+  // repeating the same insight on consecutive hands. Nullable for legacy rows.
+  dedupKey: varchar("dedup_key", { length: 120 }),
   emoji: varchar("emoji", { length: 10 }).notNull(),
   message: text("message").notNull(),
   type: insightTypeEnum("type").notNull(),

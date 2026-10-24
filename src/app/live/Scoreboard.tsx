@@ -8,7 +8,6 @@ import {
   blindsForRound,
   type HeadsUpMode,
 } from "./blinds";
-
 type ScoreboardProps = {
   round: number;
   startedAt: string; // ISO
@@ -57,72 +56,55 @@ export default function Scoreboard({ round, startedAt, playersAlive, headsUpMode
   const handsToNext = handsToNextLevel(round);
 
   return (
-    <>
-      {/* Top-left: ROUND + elapsed clock */}
-      <div className="pointer-events-none absolute left-4 top-4 z-10">
-        <CornerPanel>
-          <div className="flex items-stretch">
-            <div className="flex items-center bg-emerald-500 px-2">
-              <span className="text-[10px] font-black uppercase leading-none tracking-widest text-black">
-                Ronda
-              </span>
-            </div>
-            <div className="flex items-center px-3 py-1.5">
-              <span className="font-mono text-3xl font-black tabular-nums leading-none text-white">
-                {pad2(round)}
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center border-l border-gray-700 bg-black/50 px-2.5 py-1.5">
-              <span className="text-[9px] font-black uppercase leading-none tracking-widest text-gray-500">
-                Tiempo
-              </span>
-              <span className="mt-0.5 font-mono text-lg font-black tabular-nums leading-none text-cyan-400">
-                {formatClock(elapsedSec)}
-              </span>
-            </div>
-          </div>
-        </CornerPanel>
+    <div className="shrink-0 overflow-hidden rounded-xl border border-gray-700 bg-gray-900/90 shadow-[0_4px_20px_rgba(0,0,0,0.6)]">
+      {/* Row 1: ROUND + elapsed clock */}
+      <div className="flex items-stretch">
+        <div className="flex items-center bg-emerald-500 px-3">
+          <span className="text-xs font-black uppercase leading-none tracking-widest text-black">
+            Ronda
+          </span>
+        </div>
+        <div className="flex items-center px-4 py-2">
+          <span className="font-mono text-4xl font-black tabular-nums leading-none text-white">
+            {pad2(round)}
+          </span>
+        </div>
+        <div className="flex flex-col items-center justify-center border-l border-gray-700 bg-black/50 px-4 py-2">
+          <span className="text-[10px] font-black uppercase leading-none tracking-widest text-gray-500">
+            Tiempo total
+          </span>
+          <span className="mt-1 font-mono text-xl font-black tabular-nums leading-none text-cyan-400">
+            {formatClock(elapsedSec)}
+          </span>
+        </div>
       </div>
-
-      {/* Top-right: BLINDS + hands to next level (or heads-up mode) */}
-      <div className="pointer-events-none absolute right-4 top-4 z-10">
-        <CornerPanel>
-          <div className="flex items-stretch">
-            <div className="flex flex-col items-center justify-center px-3 py-1.5">
-              <span className="text-[10px] font-black uppercase leading-none tracking-widest text-amber-400">
-                {fixedByMode ? "Ciegas · Final" : `Ciegas · Nvl ${levelIndex + 1}`}
-              </span>
-              <span className="mt-0.5 font-mono text-2xl font-black tabular-nums leading-none text-white">
-                {level.sb}
-                <span className="px-0.5 text-gray-600">/</span>
-                {level.bb}
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center border-l border-gray-700 bg-black/50 px-2.5 py-1.5">
-              <span className="text-[9px] font-black uppercase leading-none tracking-widest text-gray-500">
-                {fixedByMode ? "Formato" : isMaxLevel ? "Nivel" : "Sube en"}
-              </span>
-              <span className="mt-0.5 whitespace-nowrap font-mono text-base font-black tabular-nums leading-none text-emerald-400">
-                {fixedByMode
-                  ? headsUpMode === "best_of_5"
-                    ? "Mejor de 5"
-                    : "50/50"
-                  : isMaxLevel
-                  ? "MAX"
-                  : `${handsToNext} ${handsToNext === 1 ? "ronda" : "rondas"}`}
-              </span>
-            </div>
-          </div>
-        </CornerPanel>
+      {/* Row 2: blinds + next level */}
+      <div className="flex items-stretch border-t border-gray-700">
+        <div className="flex flex-col items-center justify-center px-4 py-2">
+          <span className="text-[10px] font-black uppercase leading-none tracking-widest text-amber-400">
+            {fixedByMode ? "Ciegas · Final" : "Ciega Baja : Alta"}
+          </span>
+          <span className="mt-1 font-mono text-2xl font-black tabular-nums leading-none text-white">
+            {level.sb}
+            <span className="px-0.5 text-gray-600">:</span>
+            {level.bb}
+          </span>
+        </div>
+        <div className="flex flex-col items-center justify-center border-l border-gray-700 bg-black/50 px-4 py-2">
+          <span className="text-[10px] font-black uppercase leading-none tracking-widest text-gray-500">
+            {fixedByMode ? "Formato" : isMaxLevel ? "Nivel" : "Sube en"}
+          </span>
+          <span className="mt-1 whitespace-nowrap font-mono text-lg font-black tabular-nums leading-none text-emerald-400">
+            {fixedByMode
+              ? headsUpMode === "best_of_5"
+                ? "Mejor de 5"
+                : "50/50"
+              : isMaxLevel
+              ? "MAX"
+              : `${handsToNext} ${handsToNext === 1 ? "ronda" : "rondas"}`}
+          </span>
+        </div>
       </div>
-    </>
-  );
-}
-
-function CornerPanel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-gray-700 bg-gray-900/90 shadow-[0_4px_20px_rgba(0,0,0,0.6)] backdrop-blur">
-      {children}
     </div>
   );
 }

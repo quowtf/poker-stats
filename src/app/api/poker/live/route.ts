@@ -9,6 +9,30 @@ import {
   players,
 } from "@/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
+import { buildTableInsights, themeOfHandInsight } from "@/lib/live-insights";
+import { getPlayerProfile, type PlayerProfile } from "@/lib/player-profile";
+
+// Historical profiles are expensive (getPlayerProfile runs several queries per
+// player). Instead of recomputing them on every 10s poll, load them only once
+// the session has enough hands and refresh every N hands. Historical data does
+// not change during a live session, so this is plenty fresh.
+const PROFILE_MIN_HANDS = 5;
+const PROFILE_REFRESH_EVERY_HANDS = 5;
+const profileCache = new Map<string, PlayerProfile | null>();
+// Last hand count at which profiles were refreshed, per session.
+const profileRefreshAt = new Map<string, number>();
+
+async function getCachedProfile(
+  playerId: string,
+  force = false
+): Promise<PlayerProfile | null> {
+  const cached = profileCache.get(playerId);
+  if (!force && cached !== undefined) return cached;
+
+  const profile = await getPlayerProfile(playerId);
+  profileCache.set(playerId, profile);
+  return profile;
+}
 
 type SeatedPlayer = { playerId: string; seatOrder: number | null };
 
@@ -163,7 +187,7 @@ export async function GET() {
 
     // Get insights from the LAST hand only (most relevant)
     const lastHand = sessionHands[sessionHands.length - 1];
-    let insights: { id: string; emoji: string; message: string; type: string; createdAt: Date }[] = [];
+    let insights: { id: string; emoji: string; message: string; type: string; scope: string; dedupKey: string | null; createdAt: Date }[] = [];
 
     if (lastHand) {
       insights = await db
@@ -172,6 +196,8 @@ export async function GET() {
           emoji: sessionInsights.emoji,
           message: sessionInsights.message,
           type: sessionInsights.type,
+          scope: sessionInsights.scope,
+          dedupKey: sessionInsights.dedupKey,
           createdAt: sessionInsights.createdAt,
         })
         .from(sessionInsights)
@@ -247,6 +273,89 @@ export async function GET() {
       presentSbId = seatToLeft(alivePlayers, presentDealerId);
     }
 
+    // ─── Scoreboard + rolling table insights ─────────────────────────────────
+
+    const scoreboard = {
+      playersAlive: alivePlayers.length,
+      playersOut: ranking.length - alivePlayers.length,
+      totalPlayers: ranking.length,
+      totalAllIns,
+      totalEliminations,
+      leader: leader
+        ? {
+            playerId: leader.playerId,
+            name: leader.nickname || leader.name,
+            handsWon: leader.handsWon,
+          }
+        : null,
+      topKiller,
+    };
+
+    // Table-level rolling insights (computed, not persisted) so the ticker keeps
+    // moving even when the last hand produced nothing interesting. Historical
+    // profiles are loaded only after PROFILE_MIN_HANDS and refreshed every
+    // PROFILE_REFRESH_EVERY_HANDS hands. They are best-effort: a failure must
+    // never break the live endpoint.
+    const handCount = sessionHands.length;
+    const shouldLoadProfiles = handCount >= PROFILE_MIN_HANDS;
+    const lastProfileRefresh = profileRefreshAt.get(liveSession.id);
+    const shouldRefreshProfiles =
+      shouldLoadProfiles &&
+      (lastProfileRefresh === undefined ||
+        handCount - lastProfileRefresh >= PROFILE_REFRESH_EVERY_HANDS);
+
+    const profileResults = shouldLoadProfiles
+      ? await Promise.allSettled(
+          alivePlayers.map((p) =>
+            getCachedProfile(p.playerId, shouldRefreshProfiles)
+          )
+        )
+      : [];
+    if (shouldRefreshProfiles) {
+      profileRefreshAt.set(liveSession.id, handCount);
+    }
+
+    const aliveProfiles = profileResults
+      .filter(
+        (r): r is PromiseFulfilledResult<PlayerProfile | null> =>
+          r.status === "fulfilled"
+      )
+      .map((r) => r.value)
+      .filter((p): p is PlayerProfile => p !== null);
+
+    const tableInsights = buildTableInsights({
+      ranking,
+      scoreboard,
+      handCount,
+      aliveCount: alivePlayers.length,
+      profiles: aliveProfiles,
+    });
+
+    // Hand insights first (what just happened), then table insights. Drop table
+    // insights whose theme is already covered by the last hand (e.g. a fold
+    // streak vs the ghost), dedupe by id, and cap the rotation queue.
+    const reversedHandInsights = insights.slice().reverse();
+    const handThemes = new Set(
+      reversedHandInsights
+        .map((insight) => themeOfHandInsight(insight))
+        .filter((theme): theme is string => theme !== null)
+    );
+    const relevantTableInsights = tableInsights.filter(
+      (insight) => !handThemes.has(insight.theme)
+    );
+    const handInsights = reversedHandInsights.map(
+      ({ dedupKey: _dedupKey, ...rest }) => rest
+    );
+
+    const seenIds = new Set<string>();
+    const mergedInsights = [...handInsights, ...relevantTableInsights]
+      .filter((insight) => {
+        if (seenIds.has(insight.id)) return false;
+        seenIds.add(insight.id);
+        return true;
+      })
+      .slice(0, 7);
+
     return NextResponse.json({
       isLive: true,
       isFinished,
@@ -265,18 +374,10 @@ export async function GET() {
         // Heads-up mode drives blinds shown once down to 2 players.
         headsUpMode: liveSession.headsUpMode,
       },
-      scoreboard: {
-        playersAlive: alivePlayers.length,
-        playersOut: ranking.length - alivePlayers.length,
-        totalPlayers: ranking.length,
-        totalAllIns,
-        totalEliminations,
-        leader: leader ? { playerId: leader.playerId, name: leader.nickname || leader.name, handsWon: leader.handsWon } : null,
-        topKiller,
-      },
+      scoreboard,
       ranking,
       seatedPlayers,
-      insights: insights.reverse(),
+      insights: mergedInsights,
     });
   } catch (error) {
     console.error("Error fetching live data:", error);

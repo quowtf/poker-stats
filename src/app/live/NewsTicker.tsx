@@ -1,14 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-type Insight = {
-  id: string;
-  emoji: string;
-  message: string;
-  type: string;
-  createdAt: string;
-};
+import { useEffect, useRef, useState } from "react";
+import type { Insight } from "./types";
 
 /**
  * Phase 3 news ticker: a big TV-style chyron pinned to the bottom that rotates
@@ -17,11 +10,17 @@ type Insight = {
  */
 export default function NewsTicker({ insights }: { insights: Insight[] }) {
   const [index, setIndex] = useState(0);
+  const prevSignature = useRef("");
 
-  // Reset to the newest insight whenever the set changes (new hand).
+  // Only jump back to the first insight when the actual set changes. Polling
+  // every 10s returns the same ids, and resetting on every poll made the ticker
+  // restart mid-rotation.
+  const signature = insights.map((insight) => insight.id).join("|");
   useEffect(() => {
+    if (prevSignature.current === signature) return;
+    prevSignature.current = signature;
     setIndex(0);
-  }, [insights.length, insights[0]?.id]);
+  }, [signature]);
 
   useEffect(() => {
     if (insights.length <= 1) return;
@@ -31,10 +30,12 @@ export default function NewsTicker({ insights }: { insights: Insight[] }) {
     return () => clearInterval(id);
   }, [insights.length]);
 
-  const current = insights[index] || null;
+  const safeIndex =
+    insights.length > 0 ? Math.min(index, insights.length - 1) : 0;
+  const current = insights[safeIndex] ?? null;
 
   return (
-    <div className="flex items-center gap-4 border-t-2 border-emerald-500/30 bg-gradient-to-r from-gray-950 to-black px-8 py-5">
+    <div className="flex min-w-0 flex-1 items-center gap-4 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-gray-950 to-black px-6">
       {/* Live badge */}
       {/* <div className="flex shrink-0 items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1.5">
         <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
@@ -62,7 +63,7 @@ export default function NewsTicker({ insights }: { insights: Insight[] }) {
             <div
               key={ins.id}
               className={`h-1.5 rounded-full transition-all ${
-                i === index ? "w-6 bg-emerald-400" : "w-1.5 bg-gray-700"
+                i === safeIndex ? "w-6 bg-emerald-400" : "w-1.5 bg-gray-700"
               }`}
             />
           ))}

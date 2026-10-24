@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { sessions, sessionPlayers, players, hands, handPlayers } from "@/db/schema";
-import { desc, eq, sql, count, and } from "drizzle-orm";
+import { desc, eq, sql, count, and, inArray } from "drizzle-orm";
 import { positionPoints, BEER_POINT_VALUE, MIN_THRESHOLDS } from "@/lib/points";
 
 export type LeaderboardEntry = {
@@ -112,6 +112,15 @@ export async function getLastSession(): Promise<LastSessionResult> {
   const [lastSession] = await db
     .select()
     .from(sessions)
+    .where(
+      inArray(
+        sessions.id,
+        db
+          .select({ id: sessionPlayers.sessionId })
+          .from(sessionPlayers)
+          .where(eq(sessionPlayers.finishPosition, 1))
+      )
+    )
     .orderBy(desc(sessions.playedAt), desc(sessions.createdAt))
     .limit(1);
 

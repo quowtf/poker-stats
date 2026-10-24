@@ -9,6 +9,7 @@ import PreGameMesa from "./PreGameMesa";
 import RankingTable from "./RankingTable";
 import NewsTicker from "./NewsTicker";
 import HandSpotlight from "./HandSpotlight";
+import type { Insight } from "./types";
 
 // How long the full-screen hand spotlight stays up after a new round.
 const HAND_SPOTLIGHT_MS = 8000;
@@ -23,14 +24,6 @@ type RankingEntry = {
   allIns: number;
   isEliminated: boolean;
   seatOrder: number | null;
-};
-
-type Insight = {
-  id: string;
-  emoji: string;
-  message: string;
-  type: string;
-  createdAt: string;
 };
 
 type ScoreboardData = {
@@ -181,7 +174,12 @@ export default function LivePage() {
   // ─── Hand spotlight: 8s full-screen after each new round ────────────────────
 
   if (handSpotlight) {
-    return <HandSpotlight insights={data.insights} round={data.session.handCount} />;
+    return (
+      <HandSpotlight
+        insights={data.insights.filter((i) => i.scope !== "table")}
+        round={data.session.handCount}
+      />
+    );
   }
 
   // ─── Live view (Phase 3): ranking table + news ticker ───────────────────────
@@ -190,22 +188,22 @@ export default function LivePage() {
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-black text-white">
-      {/* TV-style corner scoreboards (absolute overlays) */}
-      <Scoreboard
-        round={session.handCount}
-        startedAt={session.startedAt}
-        playersAlive={scoreboard.playersAlive}
-        headsUpMode={session.headsUpMode}
-      />
+      {/* Top row: scoreboard + news ticker side by side */}
+      <div className="flex shrink-0 items-stretch gap-4 px-6 pt-4">
+        <Scoreboard
+          round={session.handCount}
+          startedAt={session.startedAt}
+          playersAlive={scoreboard.playersAlive}
+          headsUpMode={session.headsUpMode}
+        />
+        <NewsTicker insights={insights} />
+      </div>
 
-      {/* Ranking table — takes the remaining height. Top padding clears the
-          corner scoreboard panels. */}
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-2 pt-24">
+      {/* Ranking table — takes the remaining height. */}
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-2 pt-4">
         <RankingTable players={ranking} />
       </div>
 
-      {/* News ticker — big bottom band with hand-by-hand insights */}
-      <NewsTicker insights={insights} />
     </div>
   );
 }
