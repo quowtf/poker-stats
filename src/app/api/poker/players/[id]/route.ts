@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { players } from "@/db/schema";
 import { createPlayerSchema } from "@/lib/validations";
+import { normalizePhotoUrl } from "@/lib/photo";
 import { eq } from "drizzle-orm";
 
 export async function GET(
@@ -36,11 +37,15 @@ export async function PUT(
       );
     }
 
-    const { name, nickname } = parsed.data;
+    const { name, nickname, photoUrl } = parsed.data;
 
     const [updated] = await db
       .update(players)
-      .set({ name, nickname: nickname ?? null })
+      .set({
+        name,
+        nickname: nickname ?? null,
+        photoUrl: normalizePhotoUrl(photoUrl) ?? null,
+      })
       .where(eq(players.id, id))
       .returning();
 

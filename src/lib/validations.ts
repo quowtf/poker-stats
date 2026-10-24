@@ -5,6 +5,7 @@ import { z } from "zod";
 export const createPlayerSchema = z.object({
   name: z.string().min(1, "Name is required").max(50),
   nickname: z.string().max(30).nullable().optional(),
+  photoUrl: z.string().url("Invalid photo URL").max(500).nullable().optional(),
 });
 
 // ─── Sessions ────────────────────────────────────────────────────────────────

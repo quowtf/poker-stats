@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { players } from "@/db/schema";
 import { createPlayerSchema } from "@/lib/validations";
+import { normalizePhotoUrl } from "@/lib/photo";
 import { asc } from "drizzle-orm";
 
 export async function GET() {
@@ -33,11 +34,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const { name, nickname } = parsed.data;
+    const { name, nickname, photoUrl } = parsed.data;
 
     const [newPlayer] = await db
       .insert(players)
-      .values({ name, nickname: nickname ?? null })
+      .values({
+        name,
+        nickname: nickname ?? null,
+        photoUrl: normalizePhotoUrl(photoUrl) ?? null,
+      })
       .returning();
 
     return NextResponse.json(newPlayer, { status: 201 });

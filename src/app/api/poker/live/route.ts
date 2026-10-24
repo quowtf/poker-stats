@@ -104,6 +104,7 @@ export async function GET() {
         seatOrder: sessionPlayers.seatOrder,
         name: players.name,
         nickname: players.nickname,
+        photoUrl: players.photoUrl,
       })
       .from(sessionPlayers)
       .innerJoin(players, eq(sessionPlayers.playerId, players.id))
@@ -118,6 +119,7 @@ export async function GET() {
       playerId: s.playerId,
       name: s.name,
       nickname: s.nickname,
+      photoUrl: s.photoUrl,
       handsWon: 0,
       handsPlayed: 0,
       handsFolded: 0,
@@ -127,7 +129,12 @@ export async function GET() {
     }));
 
     // Get hand_players for all hands in this session
-    let ranking: { playerId: string; name: string; nickname: string | null; handsWon: number; handsPlayed: number; handsFolded: number; allIns: number; isEliminated: boolean; seatOrder: number | null }[] = [];
+    let ranking: { playerId: string; name: string; nickname: string | null; photoUrl: string | null; handsWon: number; handsPlayed: number; handsFolded: number; allIns: number; isEliminated: boolean; seatOrder: number | null }[] = [];
+
+    // Scoreboard aggregates derived from the same rows (no extra query).
+    const killMap = new Map<string, number>();
+    let totalAllIns = 0;
+    let totalEliminations = 0;
 
     if (handIds.length > 0) {
       const allHandPlayers = await db
@@ -136,6 +143,7 @@ export async function GET() {
           playerId: handPlayers.playerId,
           playerName: players.name,
           playerNickname: players.nickname,
+          playerPhoto: players.photoUrl,
           participated: handPlayers.participated,
           won: handPlayers.won,
           wentAllIn: handPlayers.wentAllIn,
@@ -149,13 +157,17 @@ export async function GET() {
       // Aggregate per player
       const playerMap = new Map<
         string,
-        { name: string; nickname: string | null; handsWon: number; handsPlayed: number; handsFolded: number; allIns: number; isEliminated: boolean }
+        { name: string; nickname: string | null; photoUrl: string | null; handsWon: number; handsPlayed: number; handsFolded: number; allIns: number; isEliminated: boolean }
       >();
+
+      // Per-hand winner + elimination count, used for the kill aggregate.
+      const byHand = new Map<string, { winnerId: string | null; elims: number }>();
 
       for (const row of allHandPlayers) {
         const existing = playerMap.get(row.playerId) || {
           name: row.playerName,
           nickname: row.playerNickname,
+          photoUrl: row.playerPhoto,
           handsWon: 0,
           handsPlayed: 0,
           handsFolded: 0,
@@ -171,6 +183,20 @@ export async function GET() {
         if (row.wentAllIn) existing.allIns++;
         if (row.eliminated) existing.isEliminated = true;
         playerMap.set(row.playerId, existing);
+
+        // Scoreboard aggregates (same rows)
+        const h = byHand.get(row.handId) || { winnerId: null, elims: 0 };
+        if (row.won) h.winnerId = row.playerId;
+        if (row.eliminated) { h.elims++; totalEliminations++; }
+        if (row.wentAllIn) totalAllIns++;
+        byHand.set(row.handId, h);
+      }
+
+      // Kills credited to the hand winner (best-effort).
+      for (const { winnerId, elims } of byHand.values()) {
+        if (winnerId && elims > 0) {
+          killMap.set(winnerId, (killMap.get(winnerId) || 0) + elims);
+        }
       }
 
       ranking = [...playerMap.entries()]
@@ -210,41 +236,8 @@ export async function GET() {
     const alivePlayers = ranking.filter((r) => !r.isEliminated);
     const isFinished = alivePlayers.length === 1 && ranking.length > 1;
 
-    // ─── Scoreboard aggregates (derived from real data) ──────────────────────
-
-    // Kills: eliminations credited to the hand winner (best-effort — the winner
-    // of a hand where someone was eliminated gets the kill).
-    const killMap = new Map<string, number>();
-    let totalAllIns = 0;
-    let totalEliminations = 0;
-
-    if (handIds.length > 0) {
-      const perHand = await db
-        .select({
-          handId: handPlayers.handId,
-          playerId: handPlayers.playerId,
-          won: handPlayers.won,
-          wentAllIn: handPlayers.wentAllIn,
-          eliminated: handPlayers.eliminated,
-        })
-        .from(handPlayers)
-        .innerJoin(hands, eq(handPlayers.handId, hands.id))
-        .where(eq(hands.sessionId, liveSession.id));
-
-      const byHand = new Map<string, { winnerId: string | null; elims: number }>();
-      for (const row of perHand) {
-        const h = byHand.get(row.handId) || { winnerId: null, elims: 0 };
-        if (row.won) h.winnerId = row.playerId;
-        if (row.eliminated) { h.elims++; totalEliminations++; }
-        if (row.wentAllIn) totalAllIns++;
-        byHand.set(row.handId, h);
-      }
-      for (const { winnerId, elims } of byHand.values()) {
-        if (winnerId && elims > 0) {
-          killMap.set(winnerId, (killMap.get(winnerId) || 0) + elims);
-        }
-      }
-    }
+    // Scoreboard aggregates (killMap, totalAllIns, totalEliminations) are
+    // computed above from the hand_players rows already fetched — no extra query.
 
     // Chip/table leader = most hands won (among alive players).
     const leader = [...alivePlayers].sort((a, b) => b.handsWon - a.handsWon)[0] || null;

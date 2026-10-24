@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { normalizePhotoUrl } from "@/lib/photo";
 
 export default function EditPlayerPage() {
   const params = useParams();
   const router = useRouter();
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -21,6 +23,7 @@ export default function EditPlayerPage() {
         if (player) {
           setName(player.name);
           setNickname(player.nickname || "");
+          setPhotoUrl(player.photoUrl || "");
         }
         setLoading(false);
       })
@@ -35,7 +38,7 @@ export default function EditPlayerPage() {
     const res = await fetch(`/api/poker/players/${params.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, nickname: nickname || null }),
+      body: JSON.stringify({ name, nickname: nickname || null, photoUrl: photoUrl.trim() || null }),
     });
 
     if (res.ok) {
@@ -77,6 +80,27 @@ export default function EditPlayerPage() {
             maxLength={30}
             className="w-full rounded-lg bg-gray-800 px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-gray-400">Foto (URL pública)</label>
+          <input
+            type="url"
+            value={photoUrl}
+            onChange={(e) => setPhotoUrl(e.target.value)}
+            maxLength={500}
+            placeholder="https://.../roberto.jpg"
+            className="w-full rounded-lg bg-gray-800 px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          {normalizePhotoUrl(photoUrl) && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={normalizePhotoUrl(photoUrl)!}
+              alt="Vista previa"
+              referrerPolicy="no-referrer"
+              className="mt-2 h-20 w-20 rounded-2xl object-cover ring-2 ring-gray-700"
+            />
+          )}
         </div>
 
         {error && <p className="rounded bg-red-900/50 p-2 text-center text-sm text-red-300">{error}</p>}

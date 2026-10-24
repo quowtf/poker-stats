@@ -1,9 +1,12 @@
 "use client";
 
+import { normalizePhotoUrl } from "@/lib/photo";
+
 type RankingEntry = {
   playerId: string;
   name: string;
   nickname: string | null;
+  photoUrl: string | null;
   handsWon: number;
   handsPlayed: number;
   handsFolded: number;
@@ -29,8 +32,8 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
   return (
     <div className="flex h-full flex-col">
       {/* Column header */}
-      <div className="mb-2 grid grid-cols-[3rem_1fr_4rem_4rem_4rem] items-center gap-2 px-4 text-xs font-black uppercase tracking-widest text-gray-600">
-        <span>#</span>
+      <div className="mb-2 grid grid-cols-[7rem_1fr_5rem_5rem_5rem] items-center gap-2 px-4 text-sm font-black uppercase tracking-widest text-gray-600">
+        <span>Foto</span>
         <span>Jugador</span>
         <span className="text-center text-gray-500">Fold</span>
         <span className="text-center text-emerald-600">Win</span>
@@ -39,45 +42,58 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
 
       {/* Alive players — flexible rows */}
       <div className="flex min-h-0 flex-1 flex-col gap-2">
-        {alive.map((p, i) => (
+        {alive.map((p, i) => {
+          const photo = normalizePhotoUrl(p.photoUrl);
+          return (
           <div
             key={p.playerId}
-            className="grid flex-1 grid-cols-[3rem_1fr_4rem_4rem_4rem] items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/70 px-4"
+            className="grid flex-1 grid-cols-[7rem_1fr_5rem_5rem_5rem] items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/70 px-4"
           >
-            {/* Rank medal */}
-            <span
-              className={`flex h-10 w-10 items-center justify-center rounded-full text-lg font-black ${
-                i === 0
-                  ? "bg-yellow-400 text-black"
-                  : i === 1
-                  ? "bg-gray-300 text-black"
-                  : i === 2
-                  ? "bg-amber-700 text-white"
-                  : "bg-gray-800 text-gray-400"
-              }`}
-            >
-              {i + 1}
-            </span>
+            {/* Photo (falls back to rank number when the player has no photo) */}
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photo}
+                alt={displayName(p)}
+                referrerPolicy="no-referrer"
+                className="h-24 w-24 rounded-2xl object-cover ring-4 ring-gray-700"
+              />
+            ) : (
+              <span
+                className={`flex h-24 w-24 items-center justify-center rounded-2xl text-4xl font-black ${
+                  i === 0
+                    ? "bg-yellow-400 text-black"
+                    : i === 1
+                    ? "bg-gray-300 text-black"
+                    : i === 2
+                    ? "bg-amber-700 text-white"
+                    : "bg-gray-800 text-gray-400"
+                }`}
+              >
+                {i + 1}
+              </span>
+            )}
 
             {/* Name */}
-            <span className="truncate text-2xl font-black">{displayName(p)}</span>
+            <span className="truncate text-4xl font-black">{displayName(p)}</span>
 
             {/* Stats */}
-            <span className="text-center text-2xl font-black tabular-nums text-gray-400">
+            <span className="text-center text-4xl font-black tabular-nums text-gray-400">
               {p.handsFolded}
             </span>
-            <span className="text-center text-2xl font-black tabular-nums text-emerald-400">
+            <span className="text-center text-4xl font-black tabular-nums text-emerald-400">
               {p.handsWon}
             </span>
             <span
-              className={`text-center text-2xl font-black tabular-nums ${
+              className={`text-center text-4xl font-black tabular-nums ${
                 p.allIns > 0 ? "text-orange-400" : "text-gray-700"
               }`}
             >
               {p.allIns}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Eliminated — compact strip */}

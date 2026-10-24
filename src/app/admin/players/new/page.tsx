@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { normalizePhotoUrl } from "@/lib/photo";
 
 export default function NewPlayerPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -16,11 +18,12 @@ export default function NewPlayerPage() {
     const formData = new FormData(e.currentTarget);
     const name = formData.get("name") as string;
     const nickname = (formData.get("nickname") as string) || null;
+    const photo = (formData.get("photoUrl") as string).trim() || null;
 
     const res = await fetch("/api/poker/players", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, nickname }),
+      body: JSON.stringify({ name, nickname, photoUrl: photo }),
     });
 
     if (res.ok) {
@@ -60,6 +63,30 @@ export default function NewPlayerPage() {
             placeholder="Apodo en la mesa"
             className="w-full rounded-lg bg-gray-800 px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-gray-400">
+            Foto (URL pública, opcional)
+          </label>
+          <input
+            name="photoUrl"
+            type="url"
+            value={photoUrl}
+            onChange={(e) => setPhotoUrl(e.target.value)}
+            maxLength={500}
+            placeholder="https://.../roberto.jpg"
+            className="w-full rounded-lg bg-gray-800 px-4 py-3 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          {normalizePhotoUrl(photoUrl) && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={normalizePhotoUrl(photoUrl)!}
+              alt="Vista previa"
+              referrerPolicy="no-referrer"
+              className="mt-2 h-20 w-20 rounded-2xl object-cover ring-2 ring-gray-700"
+            />
+          )}
         </div>
 
         {error && (

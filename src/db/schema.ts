@@ -69,6 +69,9 @@ export const players = pgTable("players", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 50 }).notNull(),
   nickname: varchar("nickname", { length: 30 }),
+  // Public URL of the player's photo (served by an external host). Nullable:
+  // the live view falls back to initials/rank when absent.
+  photoUrl: text("photo_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

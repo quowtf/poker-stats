@@ -18,6 +18,7 @@ type RankingEntry = {
   playerId: string;
   name: string;
   nickname: string | null;
+  photoUrl: string | null;
   handsWon: number;
   handsPlayed: number;
   handsFolded: number;
