@@ -15,6 +15,7 @@ import {
 } from "chart.js";
 import { Line } from "react-chartjs-2";
 import StackedChart from "./StackedChart";
+import StatRail from "../../StatRail";
 import type { ChartEvent, ChartPlayer, DominionPoint } from "@/lib/chart-types";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
@@ -82,165 +83,191 @@ export default function SessionRecapPage() {
   };
 
   return (
-    <div className="mx-auto min-h-screen max-w-2xl bg-gray-950 px-4 py-8 text-gray-100">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">← Dashboard</Link>
-        <p className="text-sm text-gray-500">
-          {new Date(data.session.playedAt + "T12:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })}
-        </p>
-      </div>
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Mobile: centered narrow column. Desktop (lg+): edge-to-edge with the
+          shared left nav rail and two content columns. */}
+      <div className="mx-auto max-w-2xl px-4 py-8 md:max-w-3xl lg:mx-0 lg:flex lg:max-w-none lg:items-start lg:px-0 lg:py-0">
+        <StatRail />
 
-      {/* Winner banner */}
-      <div className="mb-8 text-center">
-        <p className="text-5xl mb-2">🏆</p>
-        <p className="text-3xl font-black text-yellow-400">{winnerName}</p>
-        <p className="text-gray-400">Ganador · {data.session.totalHands} manos · {data.session.playerCount} jugadores</p>
-      </div>
-
-      {/* Dominio — stacked area (AoE2 style) */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Dominio de la Mesa</h2>
-        <StackedChart
-          players={data.players}
-          dominionSeries={data.dominionSeries}
-          events={data.events}
-        />
-      </section>
-
-      {/* Carrera de Manos — line chart */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Carrera de Manos</h2>
-        <p className="mb-3 text-center text-[10px] text-gray-600">
-          Manos ganadas acumuladas por jugador a lo largo de la noche
-        </p>
-        <div className="rounded-xl bg-gray-900 p-4" style={{ height: "320px" }}>
-          <Line data={chartData} options={chartOptions} />
-        </div>
-      </section>
-
-      {/* MVPs */}
-      {data.mvps.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">MVPs de la noche</h2>
-          <div className="grid grid-cols-2 gap-2">
-            {data.mvps.map((mvp, i) => (
-              <div key={i} className="rounded-lg bg-gray-900 p-3 text-center">
-                <p className="text-2xl">{mvp.emoji}</p>
-                <p className="font-bold text-white">{mvp.player}</p>
-                <p className="text-xs text-gray-500">{mvp.title}: {mvp.value}</p>
-              </div>
-            ))}
+        <div className="min-w-0 flex-1 lg:px-6 lg:py-4 xl:px-8">
+          {/* Header */}
+          <div className="mb-6 flex items-center justify-between">
+            <Link href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">← Dashboard</Link>
+            <p className="text-sm text-gray-500">
+              {new Date(data.session.playedAt + "T12:00:00").toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" })}
+            </p>
           </div>
-        </section>
-      )}
 
-      {/* Player cards (tipo carta de futbol) */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Scorecards</h2>
-        <div className="grid grid-cols-2 gap-2">
-          {data.players
-            .sort((a, b) => (a.finishPosition || 99) - (b.finishPosition || 99))
-            .map((player) => {
-              const stats = data.playerStats[player.id];
-              if (!stats) return null;
-              const elimHand = data.eliminatedAtHand[player.id];
-              return (
-                <Link
-                  key={player.id}
-                  href={`/dashboard/players/${player.id}`}
-                  className="rounded-xl bg-gray-900 p-3 transition hover:bg-gray-800 border-l-4"
-                  style={{ borderLeftColor: player.color }}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-sm">{player.name}</span>
-                    <span className={`text-xs font-bold ${player.finishPosition === 1 ? "text-yellow-400" : "text-gray-500"}`}>
-                      {player.finishPosition ? `${player.finishPosition}º` : "—"}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                    <span className="text-gray-500">Manos: <span className="text-white">{stats.handsWon}</span></span>
-                    <span className="text-gray-500">Kills: <span className="text-white">{stats.kills}</span></span>
-                    <span className="text-gray-500">All-in: <span className="text-white">{stats.allIns}</span></span>
-                    <span className="text-gray-500">🍺 <span className="text-white">{stats.drinks}</span></span>
-                  </div>
-                  {elimHand && (
-                    <p className="mt-1 text-[10px] text-gray-600">💀 Mano #{elimHand}</p>
-                  )}
-                </Link>
-              );
-            })}
-        </div>
-      </section>
-
-      {/* Top insight */}
-      {data.topInsight && (
-        <section className="mb-8">
-          <div className="rounded-xl bg-gray-900 p-4 text-center">
-            <p className="text-3xl mb-2">{data.topInsight.emoji}</p>
-            <p className="text-lg font-semibold text-gray-200">{data.topInsight.message}</p>
-            <p className="text-xs text-gray-500 mt-1">Momento más dramático</p>
-          </div>
-        </section>
-      )}
-
-      {/* Timeline */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-          Timeline ({data.timeline.length} momentos clave)
-        </h2>
-        <div className="max-h-80 overflow-y-auto space-y-1 rounded-xl bg-gray-900 p-3">
-          {data.timeline.map((t) => (
-            <div key={t.handNumber} className="flex gap-3 border-b border-gray-800/50 pb-1 last:border-0">
-              <span className="text-xs text-gray-600 w-8 flex-shrink-0">#{t.handNumber}</span>
-              <div className="text-xs text-gray-300 space-y-0.5">
-                {t.events.map((e, i) => (
-                  <p key={i}>{e}</p>
-                ))}
-              </div>
+          {/* Winner banner */}
+          <div className="mb-8 flex flex-col items-center gap-1 text-center lg:flex-row lg:gap-4 lg:text-left">
+            <p className="text-5xl">🏆</p>
+            <div>
+              <p className="text-3xl font-black text-yellow-400">{winnerName}</p>
+              <p className="text-gray-400">Ganador · {data.session.totalHands} manos · {data.session.playerCount} jugadores</p>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* All insights */}
-      {data.insights.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Insights de la noche ({data.insights.length})
-          </h2>
-          <div className="max-h-60 overflow-y-auto space-y-1 rounded-xl bg-gray-900 p-3">
-            {data.insights.map((insight, i) => (
-              <p key={i} className="text-xs text-gray-300">
-                <span className="mr-1">{insight.emoji}</span>
-                {insight.message}
-              </p>
-            ))}
           </div>
-        </section>
-      )}
 
-      {/* Final positions */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Posiciones Finales</h2>
-        <div className="space-y-1">
-          {data.players
-            .sort((a, b) => (a.finishPosition || 99) - (b.finishPosition || 99))
-            .map((player) => (
-              <div key={player.id} className="flex items-center gap-3 rounded-lg bg-gray-900 px-3 py-2">
-                <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
-                  player.finishPosition === 1 ? "bg-yellow-500 text-black"
-                  : player.finishPosition === 2 ? "bg-gray-300 text-black"
-                  : player.finishPosition === 3 ? "bg-amber-700 text-white"
-                  : "bg-gray-700 text-gray-400"
-                }`}>
-                  {player.finishPosition || "—"}
-                </span>
-                <span className="text-sm font-medium">{player.name}</span>
-              </div>
-            ))}
+          {/* Columns stack independently. `contents` on mobile collapses the
+              wrappers so the sections reorder with order-* (phone order kept). */}
+          <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
+
+            {/* ─── Column 1: charts + long lists ───────────────────────── */}
+            <div className="contents lg:block">
+
+              {/* Dominio — stacked area (AoE2 style) */}
+              <section className="order-1 mb-8 lg:mb-6">
+                <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Dominio de la Mesa</h2>
+                <StackedChart
+                  players={data.players}
+                  dominionSeries={data.dominionSeries}
+                  events={data.events}
+                />
+              </section>
+
+              {/* All insights */}
+              {data.insights.length > 0 && (
+                <section className="order-7 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Insights de la noche ({data.insights.length})
+                  </h2>
+                  <div className="max-h-60 overflow-y-auto space-y-1 rounded-xl bg-gray-900 p-3">
+                    {data.insights.map((insight, i) => (
+                      <p key={i} className="text-xs text-gray-300">
+                        <span className="mr-1">{insight.emoji}</span>
+                        {insight.message}
+                      </p>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Timeline */}
+              <section className="order-6 mb-8 lg:mb-6">
+                <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                  Timeline ({data.timeline.length} momentos clave)
+                </h2>
+                <div className="max-h-80 overflow-y-auto space-y-1 rounded-xl bg-gray-900 p-3">
+                  {data.timeline.map((t) => (
+                    <div key={t.handNumber} className="flex gap-3 border-b border-gray-800/50 pb-1 last:border-0">
+                      <span className="text-xs text-gray-600 w-8 flex-shrink-0">#{t.handNumber}</span>
+                      <div className="text-xs text-gray-300 space-y-0.5">
+                        {t.events.map((e, i) => (
+                          <p key={i}>{e}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+            </div>
+
+            {/* ─── Column 2: players + results ─────────────────────────── */}
+            <div className="contents lg:block">
+
+              {/* Carrera de Manos — line chart */}
+              <section className="order-2 mb-8 lg:mb-6">
+                <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Carrera de Manos</h2>
+                <p className="mb-3 text-center text-[10px] text-gray-600">
+                  Manos ganadas acumuladas por jugador a lo largo de la noche
+                </p>
+                <div className="rounded-xl bg-gray-900 p-4" style={{ height: "320px" }}>
+                  <Line data={chartData} options={chartOptions} />
+                </div>
+              </section>
+
+              {/* Top insight */}
+              {data.topInsight && (
+                <section className="order-5 mb-8 lg:mb-6">
+                  <div className="rounded-xl bg-gray-900 p-4 text-center">
+                    <p className="text-3xl mb-2">{data.topInsight.emoji}</p>
+                    <p className="text-lg font-semibold text-gray-200">{data.topInsight.message}</p>
+                    <p className="text-xs text-gray-500 mt-1">Momento más dramático</p>
+                  </div>
+                </section>
+              )}
+
+              {/* MVPs */}
+              {data.mvps.length > 0 && (
+                <section className="order-3 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">MVPs de la noche</h2>
+                  <div className="grid grid-cols-2 gap-2">
+                    {data.mvps.map((mvp, i) => (
+                      <div key={i} className="rounded-lg bg-gray-900 p-3 text-center">
+                        <p className="text-2xl">{mvp.emoji}</p>
+                        <p className="font-bold text-white">{mvp.player}</p>
+                        <p className="text-xs text-gray-500">{mvp.title}: {mvp.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Player cards (tipo carta de futbol) */}
+              <section className="order-4 mb-8 lg:mb-6">
+                <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Scorecards</h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {data.players
+                    .sort((a, b) => (a.finishPosition || 99) - (b.finishPosition || 99))
+                    .map((player) => {
+                      const stats = data.playerStats[player.id];
+                      if (!stats) return null;
+                      const elimHand = data.eliminatedAtHand[player.id];
+                      return (
+                        <Link
+                          key={player.id}
+                          href={`/dashboard/players/${player.id}`}
+                          className="rounded-xl bg-gray-900 p-3 transition hover:bg-gray-800 border-l-4"
+                          style={{ borderLeftColor: player.color }}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-sm">{player.name}</span>
+                            <span className={`text-xs font-bold ${player.finishPosition === 1 ? "text-yellow-400" : "text-gray-500"}`}>
+                              {player.finishPosition ? `${player.finishPosition}º` : "—"}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                            <span className="text-gray-500">Manos: <span className="text-white">{stats.handsWon}</span></span>
+                            <span className="text-gray-500">Kills: <span className="text-white">{stats.kills}</span></span>
+                            <span className="text-gray-500">All-in: <span className="text-white">{stats.allIns}</span></span>
+                            <span className="text-gray-500">🍺 <span className="text-white">{stats.drinks}</span></span>
+                          </div>
+                          {elimHand && (
+                            <p className="mt-1 text-[10px] text-gray-600">💀 Mano #{elimHand}</p>
+                          )}
+                        </Link>
+                      );
+                    })}
+                </div>
+              </section>
+
+              {/* Final positions */}
+              <section className="order-8 mb-8 lg:mb-6">
+                <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">Posiciones Finales</h2>
+                <div className="space-y-1">
+                  {data.players
+                    .sort((a, b) => (a.finishPosition || 99) - (b.finishPosition || 99))
+                    .map((player) => (
+                      <div key={player.id} className="flex items-center gap-3 rounded-lg bg-gray-900 px-3 py-2">
+                        <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
+                          player.finishPosition === 1 ? "bg-yellow-500 text-black"
+                          : player.finishPosition === 2 ? "bg-gray-300 text-black"
+                          : player.finishPosition === 3 ? "bg-amber-700 text-white"
+                          : "bg-gray-700 text-gray-400"
+                        }`}>
+                          {player.finishPosition || "—"}
+                        </span>
+                        <span className="text-sm font-medium">{player.name}</span>
+                      </div>
+                    ))}
+                </div>
+              </section>
+
+            </div>
+
+          </div>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

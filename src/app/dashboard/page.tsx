@@ -1,5 +1,6 @@
 import Link from "next/link";
 import InfoTip from "./InfoTip";
+import StatRail, { MIN_SESSIONS_FOR_TRENDS, visibleStatLinks } from "./StatRail";
 import {
   getLeaderboard,
   getLastSession,
@@ -15,10 +16,6 @@ import {
 } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
-
-// Trend/variance-based stats (volatility, consistency) need several sessions
-// before they mean anything. Below this threshold we hide them.
-const MIN_SESSIONS_FOR_TRENDS = 5;
 
 export default async function DashboardPage() {
   const [leaderboard, lastSession, totalSessions, funLabels, advancedStats, rivalries, handStats, handFunLabels, killStats, handTypeStats, sessionHistory] =
@@ -99,363 +96,383 @@ export default async function DashboardPage() {
 
   const hasAwards = personalidadAwards.length > 0 || manosAwards.length > 0 || eliminacionesAwards.length > 0;
 
+  const navLinks = visibleStatLinks(totalSessions);
+
   return (
-    <div className="mx-auto min-h-screen max-w-lg bg-gray-950 px-4 py-8 text-gray-100">
-      <h1 className="mb-2 text-center text-3xl font-bold">♠️ ♦️ Poker League ♣️ ♥️</h1>
-      <p className="mb-8 text-center text-sm text-gray-500">
-        {totalSessions} {totalSessions === 1 ? "sesión" : "sesiones"} jugadas
-      </p>
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Mobile: centered narrow column. Desktop (lg+): edge-to-edge dashboard
+          with a fixed left nav rail and 2–3 content columns. */}
+      <div className="mx-auto max-w-lg px-4 py-8 md:max-w-2xl lg:mx-0 lg:flex lg:max-w-none lg:items-start lg:px-0 lg:py-0">
 
-      {/* Last Session */}
-      {lastSession && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Última Mesa
-          </h2>
-          <p className="mb-4 text-center text-xs text-gray-500">
-            {new Date(lastSession.playedAt + "T12:00:00").toLocaleDateString(
-              "es-MX",
-              { day: "numeric", month: "long", year: "numeric" }
-            )}{" "}
-            · {lastSession.playerCount} jugadores · {lastSession.handCount} manos
+        {/* ─── Left nav rail (desktop) ─────────────────────────────────── */}
+        {totalSessions > 0 && <StatRail totalSessions={totalSessions} />}
+
+        <div className="min-w-0 flex-1 lg:px-6 lg:py-4">
+          <h1 className="mb-2 text-center text-3xl font-bold lg:text-left">
+            ♠️ ♦️ Poker League ♣️ ♥️
+          </h1>
+          <p className="mb-8 text-center text-sm text-gray-500 lg:text-left">
+            {totalSessions} {totalSessions === 1 ? "sesión" : "sesiones"} jugadas
           </p>
 
-          <Podium players={lastSession.players} />
-        </section>
-      )}
+          {/* Columns stack independently. `contents` on mobile collapses the
+              wrappers so the sections reorder with order-* (phone order kept). */}
+          <div className="flex flex-col lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]">
 
-      {/* Leaderboard */}
-      {leaderboard.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Leaderboard
-            <InfoTip text="Ranking general por puntos acumulados. Cada sesión reparte puntos por posición final: 1º=10, 2º=7, 3º=5, 4º=3, 5º=2, 6º o menos=1. Además, cada cerveza suma 0.01 pts (puro chascarrillo). 🏆=mesas ganadas (veces en 1er lugar), 🥇🥈🥉=podios (veces en top 3), Pts=puntos totales, P/S=promedio de puntos por sesión (eficiencia)." />
-          </h2>
-          <div className="rounded-xl bg-gray-900">
-            {/* Header */}
-            <div className="grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 border-b border-gray-800 px-4 py-2 text-xs text-gray-500">
-              <span>#</span>
-              <span>Jugador</span>
-              <span className="text-center">🏆</span>
-              <span className="text-center text-[9px] leading-tight">🥇🥈🥉</span>
-              <span className="text-center">Pts</span>
-              <span className="text-center">P/S</span>
-            </div>
-            {/* Rows */}
-            {leaderboard.map((entry, i) => (
-              <div
-                key={entry.playerId}
-                className={`grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 px-4 py-3 ${
-                  i < leaderboard.length - 1
-                    ? "border-b border-gray-800/50"
-                    : ""
-                }`}
-              >
-                <span className="text-sm font-bold text-gray-500">
-                  {i + 1}
-                </span>
-                <Link
-                  href={`/dashboard/players/${entry.playerId}`}
-                  className="truncate text-sm font-medium hover:text-emerald-400 transition"
-                >
-                  {entry.nickname || entry.name}
-                </Link>
-                <span className="text-center text-sm">{entry.wins}</span>
-                <span className="text-center text-sm">{entry.podiums}</span>
-                <span className="text-center text-sm font-semibold text-emerald-400">
-                  {entry.totalPoints}
-                </span>
-                <span className="text-center text-xs text-gray-400">
-                  {entry.pointsPerSession}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-center text-xs text-gray-600">
-            🏆=Mesas ganadas · 🥇🥈🥉=Podios (top 3) · Pts=Puntos totales · P/S=Puntos por sesión
-          </p>
-        </section>
-      )}
+            {/* ─── Column 1 ───────────────────────────────────────────── */}
+            <div className="contents lg:block lg:col-start-1 lg:row-start-1">
 
-      {/* Galardones — unified awards block */}
-      {hasAwards && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            🏅 Galardones
-            <InfoTip text="Reconocimientos automáticos a los jugadores. Personalidad: estilo de juego, rachas, cervezas. Manos: desempeño mano a mano (all-ins, tipos de mano ganadora). Eliminaciones: quién saca a quién de la mesa. Aparecen más galardones conforme juegan más noches." />
-          </h2>
-          <AwardGroup subtitle="Personalidad" awards={personalidadAwards} />
-          <AwardGroup subtitle="Manos" awards={manosAwards} />
-          <AwardGroup subtitle="Eliminaciones" awards={eliminacionesAwards} />
+              {/* Last Session */}
+              {lastSession && (
+                <section className="order-1 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Última Mesa
+                  </h2>
+                  <p className="mb-4 text-center text-xs text-gray-500">
+                    {new Date(lastSession.playedAt + "T12:00:00").toLocaleDateString(
+                      "es-MX",
+                      { day: "numeric", month: "long", year: "numeric" }
+                    )}{" "}
+                    · {lastSession.playerCount} jugadores · {lastSession.handCount} manos
+                  </p>
 
-          {/* Kills leaderboard mini-table */}
-          {killStats.killLeaderboard.length > 1 && (
-            <div className="rounded-lg bg-gray-900 px-4 py-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600">
-                Kills Totales
-              </p>
-              <div className="space-y-1">
-                {killStats.killLeaderboard.slice(0, 5).map((k, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-400">{k.nickname || k.name}</span>
-                    <span className="font-bold text-red-400">{k.kills}</span>
+                  <Podium players={lastSession.players} />
+                </section>
+              )}
+
+              {/* Rivalries */}
+              {rivalries.length > 0 && (
+                <section className="order-5 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Rivalidades
+                    <InfoTip text="Duelos parejos: dos jugadores que se ganan mutuamente casi por igual cuando comparten mesa. La barra muestra quién termina arriba del otro más seguido. Distinto de la Kryptonita (que es dominación de uno sobre otro). Requiere al menos 5 mesas juntos." />
+                  </h2>
+                  <div className="space-y-2">
+                    {rivalries.slice(0, 5).map((r, i) => {
+                      const aName = r.playerA.nickname || r.playerA.name;
+                      const bName = r.playerB.nickname || r.playerB.name;
+                      const total = r.aWinsOverB + r.bWinsOverA;
+                      const aPct = Math.round((r.aWinsOverB / total) * 100);
+                      return (
+                        <div
+                          key={i}
+                          className="rounded-lg bg-gray-900 px-4 py-3"
+                        >
+                          <div className="mb-2 flex items-center justify-between text-sm">
+                            <span className="font-medium">{aName}</span>
+                            <span className="text-xs text-gray-500">
+                              {r.sharedSessions} mesas
+                            </span>
+                            <span className="font-medium">{bName}</span>
+                          </div>
+                          {/* Bar */}
+                          <div className="flex h-2 overflow-hidden rounded-full">
+                            <div
+                              className="bg-emerald-500"
+                              style={{ width: `${aPct}%` }}
+                            />
+                            <div
+                              className="bg-red-500"
+                              style={{ width: `${100 - aPct}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 flex justify-between text-xs text-gray-500">
+                            <span>{r.aWinsOverB} victorias</span>
+                            <span>{r.bWinsOverA} victorias</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                </section>
+              )}
+
+              {/* Session History */}
+              {sessionHistory.length > 0 && (
+                <section className="order-9 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Historial de Sesiones
+                  </h2>
+                  <div className="space-y-2">
+                    {sessionHistory.map((s) => (
+                      <Link
+                        key={s.id}
+                        href={`/dashboard/sessions/${s.id}`}
+                        className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-3 transition hover:bg-gray-800"
+                      >
+                        <div>
+                          <p className="text-sm font-medium">
+                            {new Date(s.playedAt + "T12:00:00").toLocaleDateString("es-MX", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </p>
+                          <p className="text-xs text-gray-500">{s.playerCount} jugadores</p>
+                        </div>
+                        {s.winner && (
+                          <span className="text-sm">
+                            🏆 <span className="font-medium">{s.winner}</span>
+                          </span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+            </div>
+
+            {/* ─── Column 2 ───────────────────────────────────────────── */}
+            <div className="contents lg:block lg:col-start-2 lg:row-start-1">
+
+              {/* Leaderboard */}
+              {leaderboard.length > 0 && (
+                <section className="order-2 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Leaderboard
+                    <InfoTip text="Ranking general por puntos acumulados. Cada sesión reparte puntos por posición final: 1º=10, 2º=7, 3º=5, 4º=3, 5º=2, 6º o menos=1. Además, cada cerveza suma 0.01 pts (puro chascarrillo). 🏆=mesas ganadas (veces en 1er lugar), 🥇🥈🥉=podios (veces en top 3), Pts=puntos totales, P/S=promedio de puntos por sesión (eficiencia)." />
+                  </h2>
+                  <div className="rounded-xl bg-gray-900">
+                    {/* Header */}
+                    <div className="grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 border-b border-gray-800 px-4 py-2 text-xs text-gray-500">
+                      <span>#</span>
+                      <span>Jugador</span>
+                      <span className="text-center">🏆</span>
+                      <span className="text-center text-[9px] leading-tight">🥇🥈🥉</span>
+                      <span className="text-center">Pts</span>
+                      <span className="text-center">P/S</span>
+                    </div>
+                    {/* Rows */}
+                    {leaderboard.map((entry, i) => (
+                      <div
+                        key={entry.playerId}
+                        className={`grid grid-cols-[2rem_1fr_3rem_3rem_3rem_3.5rem] gap-1 px-4 py-3 ${
+                          i < leaderboard.length - 1
+                            ? "border-b border-gray-800/50"
+                            : ""
+                        }`}
+                      >
+                        <span className="text-sm font-bold text-gray-500">
+                          {i + 1}
+                        </span>
+                        <Link
+                          href={`/dashboard/players/${entry.playerId}`}
+                          className="truncate text-sm font-medium hover:text-emerald-400 transition"
+                        >
+                          {entry.nickname || entry.name}
+                        </Link>
+                        <span className="text-center text-sm">{entry.wins}</span>
+                        <span className="text-center text-sm">{entry.podiums}</span>
+                        <span className="text-center text-sm font-semibold text-emerald-400">
+                          {entry.totalPoints}
+                        </span>
+                        <span className="text-center text-xs text-gray-400">
+                          {entry.pointsPerSession}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-center text-xs text-gray-600">
+                    🏆=Mesas ganadas · 🥇🥈🥉=Podios (top 3) · Pts=Puntos totales · P/S=Puntos por sesión
+                  </p>
+                </section>
+              )}
+
+              {/* Kills totals — standalone block */}
+              {killStats.killLeaderboard.length > 1 && (
+                <section className="order-4 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Kills Totales
+                    <InfoTip text="Quién elimina más gente en la liga. Cuenta expulsiones directas de la mesa." />
+                  </h2>
+                  <div className="rounded-lg bg-gray-900 px-4 py-3">
+                    <div className="space-y-1">
+                      {killStats.killLeaderboard.slice(0, 5).map((k, i) => (
+                        <div key={i} className="flex items-center justify-between text-sm">
+                          <span className="text-gray-400">{k.nickname || k.name}</span>
+                          <span className="font-bold text-red-400">{k.kills}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* Winning Hand Types */}
+              {handTypeStats.distribution.length > 0 && (
+                <section className="order-8 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Manos Ganadoras
+                    <InfoTip text="Con qué tipo de mano se ganan los botes en la liga. La barra muestra qué tan seguido gana cada tipo de mano (par es lo más común, escalera real casi nunca)." />
+                  </h2>
+
+                  {/* Distribution */}
+                  <div className="rounded-lg bg-gray-900 px-4 py-3">
+                    <div className="space-y-1">
+                      {handTypeStats.distribution.map((d) => {
+                        const max = handTypeStats.distribution[0].count;
+                        const pct = Math.round((d.count / max) * 100);
+                        return (
+                          <div key={d.type} className="flex items-center gap-2 text-xs">
+                            <span className="w-28 text-gray-400">{d.emoji} {d.label}</span>
+                            <div className="flex-1 h-3 rounded-full bg-gray-800 overflow-hidden">
+                              <div className="h-full bg-emerald-600" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="w-6 text-right text-gray-400">{d.count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* Advanced Stats Table */}
+              {advancedStats.length > 0 && (
+                <section className="order-6 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    Stats Avanzados
+                    <InfoTip text="'vs expected' = qué tan bien juega alguien contra el azar puro. Con 8 en la mesa, el promedio esperado es 4.5º. Verde (negativo) = termina MEJOR de lo esperado. Rojo (positivo) = peor. Vol (volatilidad) = qué tan impredecible: bajo = siempre parecido, alto = o gana o se hunde. 🏆 veces 1º, 🥈 veces 2º, 💀 veces último, 🍺 cervezas por sesión." />
+                  </h2>
+                  <div className="space-y-2">
+                    {advancedStats
+                      .sort((a, b) => a.positionDelta - b.positionDelta)
+                      .map((s) => (
+                        <div
+                          key={s.playerId}
+                          className="rounded-lg bg-gray-900 px-4 py-3"
+                        >
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              {s.nickname || s.name}
+                            </span>
+                            <span
+                              className={`text-xs font-bold ${
+                                s.positionDelta < 0
+                                  ? "text-emerald-400"
+                                  : s.positionDelta > 0
+                                  ? "text-red-400"
+                                  : "text-gray-400"
+                              }`}
+                            >
+                              {s.positionDelta > 0 ? "+" : ""}
+                              {s.positionDelta} vs expected
+                            </span>
+                          </div>
+                          <div className="flex gap-4 text-xs text-gray-500">
+                            {totalSessions >= MIN_SESSIONS_FOR_TRENDS && (
+                              <span>Vol: {s.volatility}</span>
+                            )}
+                            <span>🏆{s.timesFirst}</span>
+                            <span>🥈{s.timesSecond}</span>
+                            <span>💀{s.timesLast}</span>
+                            <span>🍺{s.drinksPerSession}/s</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Hand Stats Table */}
+              {handStats.length > 0 && (
+                <section className="order-7 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    All-In Stats
+                    <InfoTip text="Todo sobre apostar todas las fichas. All-ins = cuántas veces lo hizo. Ganó = cuántos ganó. Sobrevivió = cuántos no lo eliminaron. Survival % = qué tan seguido sale vivo de un all-in (verde ≥70%, rojo <50%). Win rate = % de manos ganadas en general." />
+                  </h2>
+                  <div className="space-y-2">
+                    {handStats
+                      .filter((s) => s.allInCount > 0)
+                      .sort((a, b) => b.allInCount - a.allInCount)
+                      .map((s) => (
+                        <div
+                          key={s.playerId}
+                          className="rounded-lg bg-gray-900 px-4 py-3"
+                        >
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              {s.nickname || s.name}
+                            </span>
+                            <span
+                              className={`text-xs font-bold ${
+                                s.allInSurvivalRate >= 70
+                                  ? "text-emerald-400"
+                                  : s.allInSurvivalRate >= 50
+                                  ? "text-yellow-400"
+                                  : "text-red-400"
+                              }`}
+                            >
+                              {s.allInSurvivalRate}% survival
+                            </span>
+                          </div>
+                          <div className="flex gap-4 text-xs text-gray-500">
+                            <span>All-ins: {s.allInCount}</span>
+                            <span>Ganó: {s.allInWon}</span>
+                            <span>Sobrevivió: {s.allInSurvived}</span>
+                            <span>Win rate: {s.winRate}%</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </section>
+              )}
+
+            </div>
+
+            {/* ─── Column 3: all award cards ──────────────────────────── */}
+            <div className="contents lg:block lg:col-start-1 lg:col-end-3 lg:row-start-2 xl:col-start-3 xl:col-end-4 xl:row-start-1">
+
+              {/* Galardones — unified awards block */}
+              {hasAwards && (
+                <section className="order-3 mb-8 lg:mb-6">
+                  <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                    🏅 Galardones
+                    <InfoTip text="Reconocimientos automáticos a los jugadores. Personalidad: estilo de juego, rachas, cervezas. Manos: desempeño mano a mano (all-ins, tipos de mano ganadora). Eliminaciones: quién saca a quién de la mesa. Aparecen más galardones conforme juegan más noches." />
+                  </h2>
+                  <AwardGroup subtitle="Personalidad" awards={personalidadAwards} />
+                  <AwardGroup subtitle="Manos" awards={manosAwards} />
+                  <AwardGroup subtitle="Eliminaciones" awards={eliminacionesAwards} />
+                </section>
+              )}
+
+            </div>
+
+          </div>
+
+          {/* All rankings — mobile only; on lg+ this lives in the left nav rail */}
+          {totalSessions > 0 && (
+            <section className="mb-8 lg:hidden">
+              <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
+                Todos los Rankings
+              </h2>
+              <div className="grid grid-cols-2 gap-2">
+                {navLinks.map((stat) => (
+                  <Link
+                    key={stat.id}
+                    href={`/dashboard/stats/${stat.id}`}
+                    className="flex items-center gap-2 rounded-lg bg-gray-900 px-3 py-3 text-sm transition hover:bg-gray-800"
+                  >
+                    <span className="text-lg">{stat.emoji}</span>
+                    <span className="text-gray-300">{stat.title}</span>
+                  </Link>
                 ))}
               </div>
+            </section>
+          )}
+
+          {/* Empty state */}
+          {totalSessions === 0 && (
+            <div className="rounded-xl bg-gray-900 p-8 text-center">
+              <p className="text-lg">🃏</p>
+              <p className="mt-2 text-gray-400">
+                No hay sesiones registradas todavía.
+              </p>
             </div>
           )}
-        </section>
-      )}
-
-      {/* Rivalries */}
-      {rivalries.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Rivalidades
-            <InfoTip text="Duelos parejos: dos jugadores que se ganan mutuamente casi por igual cuando comparten mesa. La barra muestra quién termina arriba del otro más seguido. Distinto de la Kryptonita (que es dominación de uno sobre otro). Requiere al menos 5 mesas juntos." />
-          </h2>
-          <div className="space-y-2">
-            {rivalries.slice(0, 5).map((r, i) => {
-              const aName = r.playerA.nickname || r.playerA.name;
-              const bName = r.playerB.nickname || r.playerB.name;
-              const total = r.aWinsOverB + r.bWinsOverA;
-              const aPct = Math.round((r.aWinsOverB / total) * 100);
-              return (
-                <div
-                  key={i}
-                  className="rounded-lg bg-gray-900 px-4 py-3"
-                >
-                  <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="font-medium">{aName}</span>
-                    <span className="text-xs text-gray-500">
-                      {r.sharedSessions} mesas
-                    </span>
-                    <span className="font-medium">{bName}</span>
-                  </div>
-                  {/* Bar */}
-                  <div className="flex h-2 overflow-hidden rounded-full">
-                    <div
-                      className="bg-emerald-500"
-                      style={{ width: `${aPct}%` }}
-                    />
-                    <div
-                      className="bg-red-500"
-                      style={{ width: `${100 - aPct}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 flex justify-between text-xs text-gray-500">
-                    <span>{r.aWinsOverB} victorias</span>
-                    <span>{r.bWinsOverA} victorias</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Advanced Stats Table */}
-      {advancedStats.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Stats Avanzados
-            <InfoTip text="'vs expected' = qué tan bien juega alguien contra el azar puro. Con 8 en la mesa, el promedio esperado es 4.5º. Verde (negativo) = termina MEJOR de lo esperado. Rojo (positivo) = peor. Vol (volatilidad) = qué tan impredecible: bajo = siempre parecido, alto = o gana o se hunde. 🏆 veces 1º, 🥈 veces 2º, 💀 veces último, 🍺 cervezas por sesión." />
-          </h2>
-          <div className="space-y-2">
-            {advancedStats
-              .sort((a, b) => a.positionDelta - b.positionDelta)
-              .map((s) => (
-                <div
-                  key={s.playerId}
-                  className="rounded-lg bg-gray-900 px-4 py-3"
-                >
-                  <div className="mb-1 flex items-center justify-between">
-                    <span className="text-sm font-medium">
-                      {s.nickname || s.name}
-                    </span>
-                    <span
-                      className={`text-xs font-bold ${
-                        s.positionDelta < 0
-                          ? "text-emerald-400"
-                          : s.positionDelta > 0
-                          ? "text-red-400"
-                          : "text-gray-400"
-                      }`}
-                    >
-                      {s.positionDelta > 0 ? "+" : ""}
-                      {s.positionDelta} vs expected
-                    </span>
-                  </div>
-                  <div className="flex gap-4 text-xs text-gray-500">
-                    {totalSessions >= MIN_SESSIONS_FOR_TRENDS && (
-                      <span>Vol: {s.volatility}</span>
-                    )}
-                    <span>🏆{s.timesFirst}</span>
-                    <span>🥈{s.timesSecond}</span>
-                    <span>💀{s.timesLast}</span>
-                    <span>🍺{s.drinksPerSession}/s</span>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </section>
-      )}
-
-      {/* Hand Stats Table */}
-      {handStats.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            All-In Stats
-            <InfoTip text="Todo sobre apostar todas las fichas. All-ins = cuántas veces lo hizo. Ganó = cuántos ganó. Sobrevivió = cuántos no lo eliminaron. Survival % = qué tan seguido sale vivo de un all-in (verde ≥70%, rojo <50%). Win rate = % de manos ganadas en general." />
-          </h2>
-          <div className="space-y-2">
-            {handStats
-              .filter((s) => s.allInCount > 0)
-              .sort((a, b) => b.allInCount - a.allInCount)
-              .map((s) => (
-                <div
-                  key={s.playerId}
-                  className="rounded-lg bg-gray-900 px-4 py-3"
-                >
-                  <div className="mb-1 flex items-center justify-between">
-                    <span className="text-sm font-medium">
-                      {s.nickname || s.name}
-                    </span>
-                    <span
-                      className={`text-xs font-bold ${
-                        s.allInSurvivalRate >= 70
-                          ? "text-emerald-400"
-                          : s.allInSurvivalRate >= 50
-                          ? "text-yellow-400"
-                          : "text-red-400"
-                      }`}
-                    >
-                      {s.allInSurvivalRate}% survival
-                    </span>
-                  </div>
-                  <div className="flex gap-4 text-xs text-gray-500">
-                    <span>All-ins: {s.allInCount}</span>
-                    <span>Ganó: {s.allInWon}</span>
-                    <span>Sobrevivió: {s.allInSurvived}</span>
-                    <span>Win rate: {s.winRate}%</span>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </section>
-      )}
-
-      {/* Winning Hand Types */}
-      {handTypeStats.distribution.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Manos Ganadoras
-            <InfoTip text="Con qué tipo de mano se ganan los botes en la liga. La barra muestra qué tan seguido gana cada tipo de mano (par es lo más común, escalera real casi nunca)." />
-          </h2>
-
-          {/* Distribution */}
-          <div className="rounded-lg bg-gray-900 px-4 py-3">
-            <div className="space-y-1">
-              {handTypeStats.distribution.map((d) => {
-                const max = handTypeStats.distribution[0].count;
-                const pct = Math.round((d.count / max) * 100);
-                return (
-                  <div key={d.type} className="flex items-center gap-2 text-xs">
-                    <span className="w-28 text-gray-400">{d.emoji} {d.label}</span>
-                    <div className="flex-1 h-3 rounded-full bg-gray-800 overflow-hidden">
-                      <div className="h-full bg-emerald-600" style={{ width: `${pct}%` }} />
-                    </div>
-                    <span className="w-6 text-right text-gray-400">{d.count}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Session History */}
-      {sessionHistory.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Historial de Sesiones
-          </h2>
-          <div className="space-y-2">
-            {sessionHistory.map((s) => (
-              <Link
-                key={s.id}
-                href={`/dashboard/sessions/${s.id}`}
-                className="flex items-center justify-between rounded-lg bg-gray-900 px-4 py-3 transition hover:bg-gray-800"
-              >
-                <div>
-                  <p className="text-sm font-medium">
-                    {new Date(s.playedAt + "T12:00:00").toLocaleDateString("es-MX", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </p>
-                  <p className="text-xs text-gray-500">{s.playerCount} jugadores</p>
-                </div>
-                {s.winner && (
-                  <span className="text-sm">
-                    🏆 <span className="font-medium">{s.winner}</span>
-                  </span>
-                )}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* All Rankings */}
-      {totalSessions > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
-            Todos los Rankings
-          </h2>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { id: "points", emoji: "🏆", title: "Puntos" },
-              { id: "points-per-session", emoji: "📈", title: "Eficiencia" },
-              { id: "wins", emoji: "👑", title: "Victorias" },
-              { id: "podiums", emoji: "🥉", title: "Podios" },
-              // Trend-based rankings need several sessions to be meaningful
-              ...(totalSessions >= MIN_SESSIONS_FOR_TRENDS
-                ? [
-                    { id: "volatility", emoji: "🎰", title: "Volatilidad" },
-                    { id: "consistency", emoji: "🧘", title: "Consistencia" },
-                  ]
-                : []),
-              { id: "win-rate", emoji: "🎯", title: "Win Rate" },
-              { id: "all-ins", emoji: "🤠", title: "All-Ins" },
-              { id: "all-in-survival", emoji: "🐊", title: "Survival" },
-              { id: "kills", emoji: "🗡️", title: "Kills" },
-              { id: "drinks", emoji: "🍺", title: "Cervezas" },
-              { id: "fold-rate", emoji: "🪑", title: "Fold Rate" },
-            ].map((stat) => (
-              <Link
-                key={stat.id}
-                href={`/dashboard/stats/${stat.id}`}
-                className="flex items-center gap-2 rounded-lg bg-gray-900 px-3 py-3 text-sm transition hover:bg-gray-800"
-              >
-                <span className="text-lg">{stat.emoji}</span>
-                <span className="text-gray-300">{stat.title}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Empty state */}
-      {totalSessions === 0 && (
-        <div className="rounded-xl bg-gray-900 p-8 text-center">
-          <p className="text-lg">🃏</p>
-          <p className="mt-2 text-gray-400">
-            No hay sesiones registradas todavía.
-          </p>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -468,29 +485,29 @@ function AwardCard({ award }: { award: Award }) {
   return (
     <div className="rounded-xl bg-gradient-to-br from-gray-600 to-gray-800 p-1.5 shadow-lg">
       {/* Inner card face (like the printed area of a playing card) */}
-      <div className="relative flex aspect-[3/4] flex-col rounded-lg bg-gray-900 p-3">
+      <div className="relative flex aspect-[3/4] flex-col rounded-lg bg-gray-900 p-3 xl:p-2">
         {/* Top-left emoji corner */}
-        <span className="absolute left-3 top-3 text-3xl leading-none opacity-75">
+        <span className="absolute left-3 top-3 text-3xl leading-none opacity-75 xl:left-2 xl:top-2 xl:text-2xl 2xl:left-3 2xl:top-3 2xl:text-3xl">
           {award.emoji}
         </span>
         {/* Bottom-right emoji corner (rotated, like a real card) */}
-        <span className="absolute bottom-3 right-3 rotate-180 text-3xl leading-none opacity-75">
+        <span className="absolute bottom-3 right-3 rotate-180 text-3xl leading-none opacity-75 xl:bottom-2 xl:right-2 xl:text-2xl 2xl:bottom-3 2xl:right-3 2xl:text-3xl">
           {award.emoji}
         </span>
 
         {/* Center content */}
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <p
-            className="w-full truncate text-2xl font-black text-white"
+            className="w-full truncate text-2xl font-black text-white xl:text-base 2xl:text-xl"
             title={award.player}
           >
             {award.player}
           </p>
-          <p className="mt-1 text-xl font-bold uppercase leading-tight tracking-wide text-emerald-400">
+          <p className="mt-1 text-xl font-bold uppercase leading-tight tracking-wide text-emerald-400 xl:text-sm 2xl:text-base">
             {award.title}
           </p>
           {award.description && (
-            <p className="mt-2 text-sm leading-snug text-gray-400">
+            <p className="mt-2 text-sm leading-snug text-gray-400 xl:text-[10px] 2xl:text-xs">
               {award.description}
             </p>
           )}
@@ -507,7 +524,7 @@ function AwardGroup({ subtitle, awards }: { subtitle: string; awards: Award[] })
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600">
         {subtitle}
       </p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         {awards.map((a, i) => (
           <AwardCard key={i} award={a} />
         ))}

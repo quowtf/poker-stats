@@ -29,6 +29,7 @@ export type PlayerProfile = {
   id: string;
   name: string;
   nickname: string | null;
+  photoUrl: string | null;
 
   // Identity
   style: PlayerStyle;
@@ -389,6 +390,7 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
     id: player.id,
     name: player.name,
     nickname: player.nickname,
+    photoUrl: player.photoUrl ?? null,
     style,
     dangerLevel,
     favoriteVictim,
