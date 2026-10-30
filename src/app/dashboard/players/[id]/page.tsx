@@ -1,4 +1,9 @@
-import { getPlayerProfile } from "@/lib/player-profile";
+import {
+  ARCHETYPE_MIN_HANDS,
+  ARCHETYPE_MIN_SESSIONS,
+  ARCHETYPE_WINDOW_SESSIONS,
+  getPlayerProfile,
+} from "@/lib/player-profile";
 import InfoTip from "../../InfoTip";
 import StatRail from "../../StatRail";
 import { normalizePhotoUrl } from "@/lib/photo";
@@ -21,6 +26,7 @@ export default async function PlayerProfilePage({
   const photo = normalizePhotoUrl(profile.photoUrl);
   const dangerFires = "🔥".repeat(profile.dangerLevel) + "▪️".repeat(5 - profile.dangerLevel);
   const topBadge = profile.badges[0];
+  const archetypeTip = `${profile.style.emoji} ${profile.style.name} — ${profile.style.description} ${profile.style.evidence} Sin tracking de fichas: la agresión se mide solo por all-ins.`;
 
   const relations = [
     profile.favoriteVictim && {
@@ -121,6 +127,7 @@ export default async function PlayerProfilePage({
                   </h1>
                   <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-amber-400">
                     {profile.style.name}
+                    <InfoTip text={archetypeTip} />
                   </p>
                 </div>
               </div>
@@ -150,7 +157,7 @@ export default async function PlayerProfilePage({
               <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
                 <span className="text-[10px] uppercase tracking-[0.18em] text-gray-500">
                   {profile.style.description}
-                  <InfoTip text="Estilo = perfil de juego según cómo apuesta (agresivo, conservador, etc.). Nivel de peligro (🔥 de 1 a 5) combina win rate, eliminaciones y supervivencia en all-ins. Más 🔥 = rival más temible." />
+                  <InfoTip text={`Estilo = arquetipo animal calculado con tus últimas ${ARCHETYPE_WINDOW_SESSIONS} sesiones: manos vistas, all-ins, conversión, supervivencia, kills, puesto y volatilidad. Si ningún patrón domina, sale Camaleón; con menos de ${ARCHETYPE_MIN_HANDS} manos o ${ARCHETYPE_MIN_SESSIONS} sesiones, Polluelo. Sin tracking de fichas: la agresión se mide solo por all-ins. Nivel de peligro (🔥 de 1 a 5) combina win rate, eliminaciones y supervivencia en all-ins.`} />
                 </span>
                 <span className="shrink-0 text-sm tracking-wider">{dangerFires}</span>
               </div>

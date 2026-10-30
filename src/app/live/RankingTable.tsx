@@ -15,6 +15,15 @@ type RankingEntry = {
   seatOrder: number | null;
 };
 
+// Fluid sizes so one layout works on a laptop and on a 4K TV.
+const GRID_COLS =
+  "grid-cols-[clamp(5rem,6.8vw,9.5rem)_1fr_clamp(4rem,5vw,7rem)_clamp(4rem,5vw,7rem)_clamp(4rem,5vw,7rem)]";
+const HEADER_TEXT = "text-[clamp(0.75rem,1vw,1.25rem)]";
+const NAME_TEXT = "text-[clamp(2.25rem,3vw,7rem)] leading-none";
+const STAT_TEXT = "text-[clamp(2rem,2.6vw,5rem)] leading-none";
+const BADGE_SIZE = "h-[clamp(5rem,6.5vw,9rem)] w-[clamp(5rem,6.5vw,9rem)]";
+const BADGE_NUMBER = "text-[clamp(1.75rem,2.2vw,4rem)]";
+
 /**
  * Phase 3 ranking table. Shows the accumulated stats players can't see at a
  * glance on the physical table: wins, folds, all-ins. Alive players are ranked
@@ -32,7 +41,7 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
   return (
     <div className="flex h-full flex-col">
       {/* Column header */}
-      <div className="mb-2 grid grid-cols-[7rem_1fr_5rem_5rem_5rem] items-center gap-2 px-4 text-sm font-black uppercase tracking-widest text-gray-600">
+      <div className={`mb-2 grid ${GRID_COLS} items-center gap-2 px-4 font-black uppercase tracking-widest text-gray-600 ${HEADER_TEXT}`}>
         <span></span>
         <span>Jugador</span>
         <span className="text-center text-gray-500">Fold</span>
@@ -47,7 +56,7 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
           return (
           <div
             key={p.playerId}
-            className="grid flex-1 grid-cols-[7rem_1fr_5rem_5rem_5rem] items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/70 px-4"
+            className={`grid flex-1 ${GRID_COLS} items-center gap-2 rounded-xl border border-gray-800 bg-gray-900/70 px-4`}
           >
             {/* Photo (falls back to rank number when the player has no photo) */}
             {photo ? (
@@ -56,11 +65,11 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
                 src={photo}
                 alt={displayName(p)}
                 referrerPolicy="no-referrer"
-                className="h-24 w-24 rounded-2xl"
+                className={`${BADGE_SIZE} rounded-2xl`}
               />
             ) : (
               <span
-                className={`flex h-24 w-24 items-center justify-center rounded-2xl text-4xl font-black ${
+                className={`flex ${BADGE_SIZE} items-center justify-center rounded-2xl font-black ${BADGE_NUMBER} ${
                   i === 0
                     ? "bg-yellow-400 text-black"
                     : i === 1
@@ -75,17 +84,17 @@ export default function RankingTable({ players }: { players: RankingEntry[] }) {
             )}
 
             {/* Name */}
-            <span className="truncate text-4xl font-black">{displayName(p)}</span>
+            <span className={`truncate font-black ${NAME_TEXT}`}>{displayName(p)}</span>
 
             {/* Stats */}
-            <span className="text-center text-4xl font-black tabular-nums text-gray-400">
+            <span className={`text-center font-black tabular-nums text-gray-400 ${STAT_TEXT}`}>
               {p.handsFolded}
             </span>
-            <span className="text-center text-4xl font-black tabular-nums text-emerald-400">
+            <span className={`text-center font-black tabular-nums text-emerald-400 ${STAT_TEXT}`}>
               {p.handsWon}
             </span>
             <span
-              className={`text-center text-4xl font-black tabular-nums ${
+              className={`text-center font-black tabular-nums ${STAT_TEXT} ${
                 p.allIns > 0 ? "text-orange-400" : "text-gray-700"
               }`}
             >
