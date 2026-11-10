@@ -8,7 +8,12 @@ import {
   substitutions,
   HAND_TYPE_LABELS,
 } from "@/db/schema";
-import { eq, asc, and } from "drizzle-orm";
+import { eq, and, inArray, count } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import {
+  computeRelations,
+  type ClosedSession,
+} from "@/lib/player-relations";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -166,23 +171,26 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
     windowSessionIds.has(s.sessionId)
   );
 
-  // ─── Hand data ──────────────────────────────────────────────────────────
-
-  const allHandData = await db
+  // ─── Hand data (only this player's rows) ─────────────────────────────────
+  //
+  // The player has one row per hand they were dealt into (participated or
+  // not), so this is their full history — filtered in SQL through
+  // hand_players_player_id_idx instead of scanning the whole table.
+  const myHands = await db
     .select({
       handId: handPlayers.handId,
       sessionId: hands.sessionId,
-      playerId: handPlayers.playerId,
       participated: handPlayers.participated,
       won: handPlayers.won,
       wentAllIn: handPlayers.wentAllIn,
       eliminated: handPlayers.eliminated,
       drinks: handPlayers.drinks,
+      winningHandType: hands.winningHandType,
     })
     .from(handPlayers)
-    .innerJoin(hands, eq(handPlayers.handId, hands.id));
+    .innerJoin(hands, eq(handPlayers.handId, hands.id))
+    .where(eq(handPlayers.playerId, playerId));
 
-  const myHands = allHandData.filter((h) => h.playerId === playerId);
   const windowHands = myHands.filter((h) => windowSessionIds.has(h.sessionId));
   const handsPlayed = myHands.filter((h) => h.participated).length;
   const handsWon = myHands.filter((h) => h.won).length;
@@ -196,45 +204,71 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
   const allInSurvivalRate = allIns > 0 ? Math.round((allInsSurvived / allIns) * 100) : 0;
 
   // ─── Kills (winner of hand where someone was eliminated) ────────────────
+  //
+  // Aggregated in SQL: for every hand this player won, count the players
+  // eliminated in that hand. The self-join on hand_id uses
+  // hand_players_hand_id_idx instead of loading every hand_players row.
+  const mine = alias(handPlayers, "mine");
+  const opponent = alias(handPlayers, "opponent");
 
-  const handMap = new Map<string, typeof allHandData>();
-  for (const hp of allHandData) {
-    const arr = handMap.get(hp.handId) || [];
-    arr.push(hp);
-    handMap.set(hp.handId, arr);
-  }
+  const victimRows = await db
+    .select({
+      victimId: opponent.playerId,
+      sessionId: hands.sessionId,
+      victims: count(),
+    })
+    .from(mine)
+    .innerJoin(hands, eq(hands.id, mine.handId))
+    .innerJoin(
+      opponent,
+      and(eq(opponent.handId, mine.handId), eq(opponent.eliminated, true))
+    )
+    .where(and(eq(mine.playerId, playerId), eq(mine.won, true)))
+    .groupBy(opponent.playerId, hands.sessionId);
 
   let kills = 0;
   let windowKills = 0;
   const killVictims = new Map<string, number>(); // victimId -> count
+  for (const row of victimRows) {
+    kills += row.victims;
+    if (windowSessionIds.has(row.sessionId)) windowKills += row.victims;
+    killVictims.set(
+      row.victimId,
+      (killVictims.get(row.victimId) || 0) + row.victims
+    );
+  }
+
+  // ─── Nemesis (who knocked this player out) ──────────────────────────────
+  //
+  // For every hand this player was eliminated in, the hand winner is the
+  // player who took them down.
+  const outPlayer = alias(handPlayers, "out_player");
+  const handWinner = alias(handPlayers, "hand_winner");
+
+  const killerRows = await db
+    .select({ killerId: handWinner.playerId, kills: count() })
+    .from(outPlayer)
+    .innerJoin(
+      handWinner,
+      and(eq(handWinner.handId, outPlayer.handId), eq(handWinner.won, true))
+    )
+    .where(and(eq(outPlayer.playerId, playerId), eq(outPlayer.eliminated, true)))
+    .groupBy(handWinner.playerId);
+
   const killedBy = new Map<string, number>(); // killerId -> count
-
-  for (const [_, hps] of handMap) {
-    const winner = hps.find((h) => h.won);
-    const eliminated = hps.filter((h) => h.eliminated);
-    if (!winner || eliminated.length === 0) continue;
-
-    const inWindow = windowSessionIds.has(hps[0].sessionId);
-
-    if (winner.playerId === playerId) {
-      kills += eliminated.length;
-      if (inWindow) windowKills += eliminated.length;
-      for (const v of eliminated) {
-        killVictims.set(v.playerId, (killVictims.get(v.playerId) || 0) + 1);
-      }
-    }
-    for (const v of eliminated) {
-      if (v.playerId === playerId) {
-        killedBy.set(winner.playerId, (killedBy.get(winner.playerId) || 0) + 1);
-      }
-    }
+  for (const row of killerRows) {
+    killedBy.set(row.killerId, (killedBy.get(row.killerId) || 0) + row.kills);
   }
 
   // ─── Favorite victim ────────────────────────────────────────────────────
 
   let favoriteVictim: PlayerRelation | null = null;
   if (killVictims.size > 0) {
-    const [topVictimId, count] = [...killVictims.entries()].sort((a, b) => b[1] - a[1])[0];
+    // Ties are broken by playerId so the result is stable across calls
+    // (the DB does not guarantee any particular row order).
+    const [topVictimId, count] = [...killVictims.entries()].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+    )[0];
     const [victimPlayer] = await db.select().from(players).where(eq(players.id, topVictimId));
     if (victimPlayer) {
       favoriteVictim = {
@@ -247,84 +281,92 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
   }
 
   // ─── Nemesis ────────────────────────────────────────────────────────────
+  //
+  // Shared with the live view (lib/player-relations.ts) so both always agree.
 
-  let nemesis: PlayerRelation | null = null;
-  if (killedBy.size > 0) {
-    const [topKillerId, count] = [...killedBy.entries()].sort((a, b) => b[1] - a[1])[0];
-    const [killerPlayer] = await db.select().from(players).where(eq(players.id, topKillerId));
-    if (killerPlayer) {
-      nemesis = {
-        playerId: topKillerId,
-        name: killerPlayer.name,
-        nickname: killerPlayer.nickname,
-        detail: `Te eliminó ${count} veces`,
-      };
+  const relationPlayersById = new Map<string, { id: string; name: string; nickname: string | null }>();
+  const candidateIds = new Set<string>();
+  for (const [killerId] of killedBy) candidateIds.add(killerId);
+  for (const [victimId] of killVictims) candidateIds.add(victimId);
+
+  // Attendees of the sessions this player took part in. Only those sessions
+  // matter for the kryptonite computation.
+  const playerSessionIds = sessionData.map((s) => s.sessionId);
+  const attendeeRows = await db
+    .select({
+      sessionId: sessionPlayers.sessionId,
+      playerId: sessionPlayers.playerId,
+    })
+    .from(sessionPlayers)
+    .where(inArray(sessionPlayers.sessionId, playerSessionIds));
+
+  const sessionAttendees = new Map<string, Set<string>>();
+  for (const sp of attendeeRows) {
+    const set = sessionAttendees.get(sp.sessionId) || new Set<string>();
+    set.add(sp.playerId);
+    sessionAttendees.set(sp.sessionId, set);
+  }
+
+  // Only players who shared a table with this one can be a kryptonite.
+  for (const set of sessionAttendees.values()) {
+    for (const pid of set) {
+      if (pid !== playerId) candidateIds.add(pid);
     }
   }
+
+  if (candidateIds.size > 0) {
+    const candidatePlayers = await db
+      .select({ id: players.id, name: players.name, nickname: players.nickname })
+      .from(players)
+      .where(inArray(players.id, [...candidateIds]));
+    for (const p of candidatePlayers) relationPlayersById.set(p.id, p);
+  }
+
+  const closedSessionList: ClosedSession[] = closedSessions.map((s) => ({
+    sessionId: s.sessionId,
+    finishPosition: s.finishPosition!,
+    playedAt: s.playedAt,
+  }));
+
+  const sharedRelations = computeRelations({
+    playerId,
+    closedSessions: closedSessionList,
+    sessionAttendees,
+    candidateIds: [...candidateIds],
+    playersById: relationPlayersById,
+    killerCounts: killedBy,
+  });
+
+  const nemesis: PlayerRelation | null = sharedRelations.nemesis;
 
   // ─── Kryptonite (presence tanks win rate) ───────────────────────────────
 
-  let kryptonite: PlayerRelation | null = null;
-  if (sessionsPlayed >= 5) {
-    const allPlayers = await db.select({ id: players.id, name: players.name, nickname: players.nickname }).from(players);
-    const allSessionPlayers = await db
-      .select({ sessionId: sessionPlayers.sessionId, playerId: sessionPlayers.playerId })
-      .from(sessionPlayers);
-
-    // Group sessions by who attended
-    const sessionAttendees = new Map<string, Set<string>>();
-    for (const sp of allSessionPlayers) {
-      const set = sessionAttendees.get(sp.sessionId) || new Set();
-      set.add(sp.playerId);
-      sessionAttendees.set(sp.sessionId, set);
-    }
-
-    let biggestDrop = 0;
-    let kryptonitePlayer: typeof allPlayers[0] | null = null;
-
-    for (const other of allPlayers) {
-      if (other.id === playerId) continue;
-
-      const withOther = closedSessions.filter((s) => sessionAttendees.get(s.sessionId)?.has(other.id));
-      const withoutOther = closedSessions.filter((s) => !sessionAttendees.get(s.sessionId)?.has(other.id));
-
-      if (withOther.length < 3 || withoutOther.length < 2) continue;
-
-      const winRateWith = withOther.filter((s) => s.finishPosition === 1).length / withOther.length;
-      const winRateWithout = withoutOther.filter((s) => s.finishPosition === 1).length / withoutOther.length;
-      const drop = winRateWithout - winRateWith;
-
-      if (drop > biggestDrop) {
-        biggestDrop = drop;
-        kryptonitePlayer = other;
-      }
-    }
-
-    if (kryptonitePlayer && biggestDrop > 0.1) {
-      kryptonite = {
-        playerId: kryptonitePlayer.id,
-        name: kryptonitePlayer.name,
-        nickname: kryptonitePlayer.nickname,
-        detail: `Tu win rate baja ${Math.round(biggestDrop * 100)}% cuando está`,
-      };
-    }
-  }
+  const kryptonite: PlayerRelation | null = sharedRelations.kryptonite;
 
   // ─── Dealer / SB stats ──────────────────────────────────────────────────
+  //
+  // Only the hands where this player held the button are needed, so the query
+  // filters by role (indexed) instead of loading the whole hands table and
+  // doing an O(n²) lookup.
+  const dealerRows = await db
+    .select({ id: hands.id })
+    .from(hands)
+    .where(eq(hands.dealerId, playerId));
 
-  const handsWithRoles = await db
-    .select({ id: hands.id, dealerId: hands.dealerId, sbId: hands.sbId })
-    .from(hands);
+  const sbRows = await db
+    .select({ id: hands.id })
+    .from(hands)
+    .where(eq(hands.sbId, playerId));
 
-  const dealerHandIds = handsWithRoles.filter((h) => h.dealerId === playerId).map((h) => h.id);
-  const sbHandIds = handsWithRoles.filter((h) => h.sbId === playerId).map((h) => h.id);
+  const dealerHandIds = new Set(dealerRows.map((h) => h.id));
+  const sbHandIds = new Set(sbRows.map((h) => h.id));
 
-  const dealerHands = dealerHandIds.length;
-  const dealerWins = myHands.filter((h) => dealerHandIds.includes(h.handId) && h.won).length;
+  const dealerHands = dealerHandIds.size;
+  const dealerWins = myHands.filter((h) => h.won && dealerHandIds.has(h.handId)).length;
   const dealerWinRate = dealerHands > 0 ? Math.round((dealerWins / dealerHands) * 100) : 0;
 
-  const sbHands = sbHandIds.length;
-  const sbWins = myHands.filter((h) => sbHandIds.includes(h.handId) && h.won).length;
+  const sbHands = sbHandIds.size;
+  const sbWins = myHands.filter((h) => h.won && sbHandIds.has(h.handId)).length;
   const sbWinRate = sbHands > 0 ? Math.round((sbWins / sbHands) * 100) : 0;
 
   // ─── Clutch factor (how often the player reaches heads-up) ──────────────
@@ -340,11 +382,17 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
   // Session where player went all-in most times but still finished top 3
   let bestComeback: { allIns: number; position: number } | null = null;
 
-  const sessionIds = closedSessions.map((s) => s.sessionId);
+  // myHands already carries the session of each hand, so the all-ins per
+  // session are counted in memory — no extra query per session.
+  const allInsBySession = new Map<string, number>();
+  for (const h of myHands) {
+    if (!h.wentAllIn) continue;
+    allInsBySession.set(h.sessionId, (allInsBySession.get(h.sessionId) || 0) + 1);
+  }
+
   for (const s of closedSessions) {
     if (s.finishPosition! > 3) continue;
-    const sessionHandIds = (await db.select({ id: hands.id }).from(hands).where(eq(hands.sessionId, s.sessionId))).map((h) => h.id);
-    const sessionAllIns = myHands.filter((h) => sessionHandIds.includes(h.handId) && h.wentAllIn).length;
+    const sessionAllIns = allInsBySession.get(s.sessionId) || 0;
     if (sessionAllIns >= 2 && (!bestComeback || sessionAllIns > bestComeback.allIns)) {
       bestComeback = { allIns: sessionAllIns, position: s.finishPosition! };
     }
@@ -362,26 +410,10 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
   const winRateSober = handsWithoutDrinks.length > 0 ? Math.round((handsWithoutDrinks.filter((h) => h.won).length / handsWithoutDrinks.length) * 100) : 0;
 
   // ─── Current streak ─────────────────────────────────────────────────────
+  //
+  // Shared with the live view (lib/player-relations.ts) so both always agree.
 
-  let currentStreak: { type: "win" | "loss"; count: number } = { type: "loss", count: 0 };
-  if (positions.length > 0) {
-    const lastPos = positions[positions.length - 1];
-    if (lastPos === 1) {
-      let count = 0;
-      for (let i = positions.length - 1; i >= 0; i--) {
-        if (positions[i] === 1) count++;
-        else break;
-      }
-      currentStreak = { type: "win", count };
-    } else {
-      let count = 0;
-      for (let i = positions.length - 1; i >= 0; i--) {
-        if (positions[i] !== 1) count++;
-        else break;
-      }
-      currentStreak = { type: "loss", count };
-    }
-  }
+  const currentStreak = sharedRelations.currentStreak;
 
   // ─── Revivals ───────────────────────────────────────────────────────────
 
@@ -400,7 +432,9 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
     for (const r of revivals) {
       reviverCounts.set(r.leftPlayerId, (reviverCounts.get(r.leftPlayerId) || 0) + 1);
     }
-    const [topReviverId, count] = [...reviverCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    const [topReviverId, count] = [...reviverCounts.entries()].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+    )[0];
     const [reviverPlayer] = await db.select().from(players).where(eq(players.id, topReviverId));
     if (reviverPlayer) {
       revivedBy = {
@@ -413,16 +447,14 @@ export async function getPlayerProfile(playerId: string): Promise<PlayerProfile 
   }
 
   // ─── Signature winning hand ─────────────────────────────────────────────
-
-  const wonHandTypes = await db
-    .select({ winningHandType: hands.winningHandType })
-    .from(handPlayers)
-    .innerJoin(hands, eq(handPlayers.handId, hands.id))
-    .where(and(eq(handPlayers.playerId, playerId), eq(handPlayers.won, true)));
+  //
+  // Derived from myHands (already filtered to this player) instead of a
+  // second join over hand_players.
 
   const typeCounts = new Map<string, number>();
-  for (const r of wonHandTypes) {
-    if (r.winningHandType) typeCounts.set(r.winningHandType, (typeCounts.get(r.winningHandType) || 0) + 1);
+  for (const h of myHands) {
+    if (!h.won || !h.winningHandType) continue;
+    typeCounts.set(h.winningHandType, (typeCounts.get(h.winningHandType) || 0) + 1);
   }
   let signatureHand: PlayerProfile["signatureHand"] = null;
   if (typeCounts.size > 0) {

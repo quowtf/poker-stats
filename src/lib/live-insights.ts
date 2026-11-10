@@ -11,7 +11,7 @@
  */
 
 // Type-only import: keeps this module free of DB/runtime dependencies.
-import type { PlayerProfile } from "@/lib/player-profile";
+import type { PlayerRelations } from "@/lib/player-relations";
 
 export type TableInsight = {
   id: string;
@@ -89,11 +89,13 @@ export function buildTableInsights(input: {
   scoreboard: ScoreboardData;
   handCount: number;
   aliveCount: number;
-  // Historical profiles of the alive players (optional). Callers should cache
-  // these — getPlayerProfile is expensive and this runs on every live poll.
-  profiles?: PlayerProfile[];
+  // Historical relations of the alive players (optional). Callers should load
+  // these in batch — the full PlayerProfile is expensive and this runs on every
+  // live poll. Only three facts are actually needed: kryptonite, nemesis and
+  // the current streak.
+  relations?: Map<string, PlayerRelations>;
 }): TableInsight[] {
-  const { ranking, scoreboard, aliveCount, profiles, handCount } = input;
+  const { ranking, scoreboard, aliveCount, relations, handCount } = input;
 
   const insights: TableInsight[] = [];
   const nameOf = (p: { name: string; nickname: string | null }) =>
@@ -200,14 +202,12 @@ export function buildTableInsights(input: {
 
   // ─── Historical hints (from cached player profiles) ───────────────────────
 
-  if (profiles && profiles.length > 0) {
+  if (relations && relations.size > 0) {
     const aliveIds = new Set(alive.map((p) => p.playerId));
-    const profileById = new Map(profiles.map((p) => [p.id, p]));
 
     // 🧪 Kryptonite present: an alive player's nemesis is also alive.
     for (const player of alive) {
-      const profile = profileById.get(player.playerId);
-      const kryptonite = profile?.kryptonite;
+      const kryptonite = relations.get(player.playerId)?.kryptonite;
       if (kryptonite && aliveIds.has(kryptonite.playerId)) {
         insights.push({
           id: `table:kryptonite:${player.playerId}`,
@@ -224,7 +224,7 @@ export function buildTableInsights(input: {
     // ☠️ Nemesis present (only if kryptonite didn't already cover rivalry).
     if (!insights.some((insight) => insight.theme === "rivalry")) {
       for (const player of alive) {
-        const nemesis = profileById.get(player.playerId)?.nemesis;
+        const nemesis = relations.get(player.playerId)?.nemesis;
         if (nemesis && aliveIds.has(nemesis.playerId)) {
           insights.push({
             id: `table:nemesis:${player.playerId}`,
@@ -241,22 +241,22 @@ export function buildTableInsights(input: {
 
     // 🔥 Historical streak: coming off consecutive session wins.
     const onFire = [...alive]
-      .map((player) => ({ player, profile: profileById.get(player.playerId) }))
+      .map((player) => ({ player, relations: relations.get(player.playerId) }))
       .filter(
-        ({ profile }) =>
-          profile?.currentStreak.type === "win" &&
-          profile.currentStreak.count >= 2
+        ({ relations }) =>
+          relations?.currentStreak.type === "win" &&
+          relations.currentStreak.count >= 2
       )
       .sort(
         (a, b) =>
-          (b.profile?.currentStreak.count ?? 0) -
-          (a.profile?.currentStreak.count ?? 0)
+          (b.relations?.currentStreak.count ?? 0) -
+          (a.relations?.currentStreak.count ?? 0)
       )[0];
-    if (onFire?.profile) {
+    if (onFire?.relations) {
       insights.push({
         id: `table:hist_streak:${onFire.player.playerId}`,
         emoji: "🔥",
-        message: `${nameOf(onFire.player)} viene de ganar ${onFire.profile.currentStreak.count} noches seguidas`,
+        message: `${nameOf(onFire.player)} viene de ganar ${onFire.relations.currentStreak.count} noches seguidas`,
         type: "streak",
         scope: "table",
         theme: "hot_streak",

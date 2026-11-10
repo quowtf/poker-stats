@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   date,
+  index,
   uniqueIndex,
   pgEnum,
 } from "drizzle-orm/pg-core";
@@ -83,15 +84,22 @@ export const headsUpModeEnum = pgEnum("heads_up_mode", [
   "best_of_3",  // blinds drop to 100/200, best of 3
 ]);
 
-export const sessions = pgTable("sessions", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  playedAt: date("played_at", { mode: "string" }).notNull(),
-  playerCount: integer("player_count").notNull(),
-  notes: text("notes"),
-  isLive: boolean("is_live").notNull().default(false),
-  headsUpMode: headsUpModeEnum("heads_up_mode").notNull().default("natura"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    playedAt: date("played_at", { mode: "string" }).notNull(),
+    playerCount: integer("player_count").notNull(),
+    notes: text("notes"),
+    isLive: boolean("is_live").notNull().default(false),
+    headsUpMode: headsUpModeEnum("heads_up_mode").notNull().default("natura"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // The live endpoint looks up the single live session on every poll.
+    index("sessions_is_live_idx").on(table.isLive),
+  ]
+);
 
 export const sessionPlayers = pgTable(
   "session_players",
@@ -112,22 +120,32 @@ export const sessionPlayers = pgTable(
   },
   (table) => [
     uniqueIndex("session_player_unique").on(table.sessionId, table.playerId),
+    // Profile queries filter by player across all their sessions.
+    index("session_players_player_id_idx").on(table.playerId),
   ]
 );
 
 // ─── Hands (per-round tracking within a session) ─────────────────────────────
 
-export const hands = pgTable("hands", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  sessionId: uuid("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  handNumber: integer("hand_number").notNull(),
-  dealerId: uuid("dealer_id").references(() => players.id, { onDelete: "restrict" }),
-  sbId: uuid("sb_id").references(() => players.id, { onDelete: "restrict" }),
-  winningHandType: handTypeEnum("winning_hand_type"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const hands = pgTable(
+  "hands",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    handNumber: integer("hand_number").notNull(),
+    dealerId: uuid("dealer_id").references(() => players.id, { onDelete: "restrict" }),
+    sbId: uuid("sb_id").references(() => players.id, { onDelete: "restrict" }),
+    winningHandType: handTypeEnum("winning_hand_type"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("hands_session_id_idx").on(table.sessionId),
+    index("hands_dealer_id_idx").on(table.dealerId),
+    index("hands_sb_id_idx").on(table.sbId),
+  ]
+);
 
 export const handPlayers = pgTable(
   "hand_players",
@@ -147,25 +165,34 @@ export const handPlayers = pgTable(
   },
   (table) => [
     uniqueIndex("hand_player_unique").on(table.handId, table.playerId),
+    // Profile queries filter by player across their whole hand history.
+    // (hand_id lookups are already covered by the unique index prefix.)
+    index("hand_players_player_id_idx").on(table.playerId),
   ]
 );
 
 // ─── Substitutions (player leaves, gives chips to eliminated player) ─────────
 
-export const substitutions = pgTable("substitutions", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  sessionId: uuid("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  handNumber: integer("hand_number").notNull(), // at which hand this happened
-  leftPlayerId: uuid("left_player_id")
-    .notNull()
-    .references(() => players.id, { onDelete: "restrict" }),
-  revivedPlayerId: uuid("revived_player_id")
-    .notNull()
-    .references(() => players.id, { onDelete: "restrict" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const substitutions = pgTable(
+  "substitutions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    handNumber: integer("hand_number").notNull(), // at which hand this happened
+    leftPlayerId: uuid("left_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    revivedPlayerId: uuid("revived_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("substitutions_revived_player_id_idx").on(table.revivedPlayerId),
+  ]
+);
 
 // ─── Insights (generated per hand, persisted for history) ────────────────────
 
@@ -184,21 +211,28 @@ export const insightTypeEnum = pgEnum("insight_type", [
 // only, not persisted).
 export const insightScopeEnum = pgEnum("insight_scope", ["hand", "table"]);
 
-export const sessionInsights = pgTable("session_insights", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  sessionId: uuid("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  handId: uuid("hand_id").references(() => hands.id, { onDelete: "cascade" }),
-  scope: insightScopeEnum("scope").notNull().default("hand"),
-  // Stable rule+entity key (e.g. "fold_streak:<playerId>") used to avoid
-  // repeating the same insight on consecutive hands. Nullable for legacy rows.
-  dedupKey: varchar("dedup_key", { length: 120 }),
-  emoji: varchar("emoji", { length: 10 }).notNull(),
-  message: text("message").notNull(),
-  type: insightTypeEnum("type").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const sessionInsights = pgTable(
+  "session_insights",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    handId: uuid("hand_id").references(() => hands.id, { onDelete: "cascade" }),
+    scope: insightScopeEnum("scope").notNull().default("hand"),
+    // Stable rule+entity key (e.g. "fold_streak:<playerId>") used to avoid
+    // repeating the same insight on consecutive hands. Nullable for legacy rows.
+    dedupKey: varchar("dedup_key", { length: 120 }),
+    emoji: varchar("emoji", { length: 10 }).notNull(),
+    message: text("message").notNull(),
+    type: insightTypeEnum("type").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("session_insights_hand_id_idx").on(table.handId),
+    index("session_insights_session_id_idx").on(table.sessionId),
+  ]
+);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

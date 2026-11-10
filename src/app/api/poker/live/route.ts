@@ -8,30 +8,21 @@ import {
   handPlayers,
   players,
 } from "@/db/schema";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, sql } from "drizzle-orm";
 import { buildTableInsights, themeOfHandInsight } from "@/lib/live-insights";
-import { getPlayerProfile, type PlayerProfile } from "@/lib/player-profile";
+import { getPlayerRelations, loadRelationData } from "@/lib/player-relations";
 
-// Historical profiles are expensive (getPlayerProfile runs several queries per
-// player). Instead of recomputing them on every 10s poll, load them only once
-// the session has enough hands and refresh every N hands. Historical data does
-// not change during a live session, so this is plenty fresh.
-const PROFILE_MIN_HANDS = 5;
-const PROFILE_REFRESH_EVERY_HANDS = 5;
-const profileCache = new Map<string, PlayerProfile | null>();
-// Last hand count at which profiles were refreshed, per session.
-const profileRefreshAt = new Map<string, number>();
-
-async function getCachedProfile(
-  playerId: string,
-  force = false
-): Promise<PlayerProfile | null> {
-  const cached = profileCache.get(playerId);
-  if (!force && cached !== undefined) return cached;
-
-  const profile = await getPlayerProfile(playerId);
-  profileCache.set(playerId, profile);
-  return profile;
+// The live view only needs three historical facts per player (kryptonite,
+// nemesis, current streak). They are computed in BATCH from 3 queries for the
+// whole table, instead of loading the full PlayerProfile per player (~13
+// queries each).
+//
+// They are loaded only when the payload has to be recomputed (i.e. when the
+// session version changed), so the historical data is always fresh: no TTL,
+// no stale kills.
+async function loadRelations(aliveIds: string[]) {
+  const data = await loadRelationData();
+  return getPlayerRelations(aliveIds, data);
 }
 
 type SeatedPlayer = { playerId: string; seatOrder: number | null };
@@ -61,6 +52,44 @@ function seatToLeft(players: SeatedPlayer[], fromPlayerId: string | null): strin
   return active[(idx + 1) % active.length].playerId;
 }
 
+// ─── Payload cache ───────────────────────────────────────────────────────────
+//
+// The live view only changes when a new hand is registered (or the session is
+// closed). The client polls every 10s, so recomputing the whole payload on
+// every poll burns dozens of queries for identical data.
+//
+// The payload is therefore memoized per session and invalidated by a cheap
+// "version" probe (hand count + seated players + last insight timestamp). The
+// probe is a single round trip; when the version is unchanged the cached
+// payload is returned without touching the heavy tables.
+//
+// The cache lives in the module scope, so it is per serverless instance: a
+// cold instance recomputes once per version instead of once per poll. The
+// profile cache below (same lifetime) keeps that recompute cheap.
+type LivePayload = Record<string, unknown>;
+
+type CacheEntry = {
+  version: string;
+  etag: string;
+  payload: LivePayload;
+};
+
+const liveCache = new Map<string, CacheEntry>();
+const MAX_CACHE_ENTRIES = 4;
+
+function storeInCache(sessionId: string, version: string, payload: LivePayload): CacheEntry {
+  const entry: CacheEntry = { version, etag: `"live-${version}"`, payload };
+  // Refresh insertion order (LRU-ish: the oldest key is evicted first).
+  liveCache.delete(sessionId);
+  liveCache.set(sessionId, entry);
+  while (liveCache.size > MAX_CACHE_ENTRIES) {
+    const oldest = liveCache.keys().next().value;
+    if (oldest === undefined) break;
+    liveCache.delete(oldest);
+  }
+  return entry;
+}
+
 /**
  * GET /api/poker/live
  * Returns data for the live view:
@@ -69,7 +98,7 @@ function seatToLeft(players: SeatedPlayer[], fromPlayerId: string | null): strin
  * - Latest 5 insights
  * - isLive flag (if false, /live page stops polling)
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     // Find the live session
     const [liveSession] = await db
@@ -82,62 +111,72 @@ export async function GET() {
       return NextResponse.json({ isLive: false, session: null, ranking: [], insights: [] });
     }
 
-    // Get all hands for this session with players
-    const sessionHands = await db
+    // ─── Version probe (one round trip) ─────────────────────────────────────
+    //
+    // Everything the payload depends on that can change without a new hand:
+    // the number of hands, the seated players and the latest insight row
+    // (insights are generated asynchronously right after a hand is posted).
+    //
+    // Timestamps come back as epoch seconds (double precision) so the driver
+    // never has to guess how to map a raw timestamptz.
+    const [probe] = await db
       .select({
-        id: hands.id,
-        handNumber: hands.handNumber,
-        createdAt: hands.createdAt,
-        dealerId: hands.dealerId,
-        sbId: hands.sbId,
+        handCount: sql<number>`(SELECT count(*)::int FROM ${hands} WHERE ${hands.sessionId} = ${liveSession.id})`,
+        seatedCount: sql<number>`(SELECT count(*)::int FROM ${sessionPlayers} WHERE ${sessionPlayers.sessionId} = ${liveSession.id})`,
+        insightAt: sql<number | null>`(SELECT extract(epoch FROM max(${sessionInsights.createdAt})) FROM ${sessionInsights} WHERE ${sessionInsights.sessionId} = ${liveSession.id})`.mapWith(Number),
+        firstHandAt: sql<number | null>`(SELECT extract(epoch FROM ${hands.createdAt}) FROM ${hands} WHERE ${hands.sessionId} = ${liveSession.id} ORDER BY ${hands.handNumber} ASC LIMIT 1)`.mapWith(Number),
+        lastHandId: sql<string | null>`(SELECT ${hands.id} FROM ${hands} WHERE ${hands.sessionId} = ${liveSession.id} ORDER BY ${hands.handNumber} DESC LIMIT 1)`,
+        lastHandAt: sql<number | null>`(SELECT extract(epoch FROM ${hands.createdAt}) FROM ${hands} WHERE ${hands.sessionId} = ${liveSession.id} ORDER BY ${hands.handNumber} DESC LIMIT 1)`.mapWith(Number),
+        lastDealerId: sql<string | null>`(SELECT ${hands.dealerId} FROM ${hands} WHERE ${hands.sessionId} = ${liveSession.id} ORDER BY ${hands.handNumber} DESC LIMIT 1)`,
+        lastSbId: sql<string | null>`(SELECT ${hands.sbId} FROM ${hands} WHERE ${hands.sessionId} = ${liveSession.id} ORDER BY ${hands.handNumber} DESC LIMIT 1)`,
       })
-      .from(hands)
-      .where(eq(hands.sessionId, liveSession.id))
-      .orderBy(asc(hands.handNumber));
+      .from(sessions)
+      .where(eq(sessions.id, liveSession.id));
 
-    const handIds = sessionHands.map((h) => h.id);
+    const handCount = probe.handCount;
+    const version = [
+      liveSession.id,
+      handCount,
+      probe.seatedCount,
+      probe.insightAt ?? 0,
+    ].join(":");
 
-    // Seat order per player (0-based clockwise); nullable → alphabetical fallback later
-    const seats = await db
-      .select({
-        playerId: sessionPlayers.playerId,
-        seatOrder: sessionPlayers.seatOrder,
-        name: players.name,
-        nickname: players.nickname,
-        photoUrl: players.photoUrl,
-      })
-      .from(sessionPlayers)
-      .innerJoin(players, eq(sessionPlayers.playerId, players.id))
-      .where(eq(sessionPlayers.sessionId, liveSession.id));
-    const seatOrderMap = new Map<string, number | null>(
-      seats.map((s) => [s.playerId, s.seatOrder])
-    );
+    // ─── Cache hit ──────────────────────────────────────────────────────────
+    //
+    // Nothing changed since the last poll: serve the cached payload. If the
+    // client already has it (If-None-Match), answer 304 with no body.
+    const cached = liveCache.get(liveSession.id);
+    if (cached && cached.version === version) {
+      const ifNoneMatch = request.headers.get("if-none-match");
+      if (ifNoneMatch && ifNoneMatch.split(",").some((t) => t.trim() === cached.etag)) {
+        return new NextResponse(null, {
+          status: 304,
+          headers: { ETag: cached.etag, "Cache-Control": "no-store" },
+        });
+      }
+      return NextResponse.json(cached.payload, {
+        headers: { ETag: cached.etag, "Cache-Control": "no-store" },
+      });
+    }
 
-    // Seated players (works even before any hand is played — used by the
-    // pre-game mesa view where `ranking` is still empty).
-    const seatedPlayers = seats.map((s) => ({
-      playerId: s.playerId,
-      name: s.name,
-      nickname: s.nickname,
-      photoUrl: s.photoUrl,
-      handsWon: 0,
-      handsPlayed: 0,
-      handsFolded: 0,
-      allIns: 0,
-      isEliminated: false,
-      seatOrder: s.seatOrder,
-    }));
+    // ─── Heavy queries (run in parallel: one round trip each) ───────────────
 
-    // Get hand_players for all hands in this session
-    let ranking: { playerId: string; name: string; nickname: string | null; photoUrl: string | null; handsWon: number; handsPlayed: number; handsFolded: number; allIns: number; isEliminated: boolean; seatOrder: number | null }[] = [];
+    const [seatRows, handPlayerRows, insightRows] = await Promise.all([
+      // Seat order per player (0-based clockwise); nullable → alphabetical fallback later
+      db
+        .select({
+          playerId: sessionPlayers.playerId,
+          seatOrder: sessionPlayers.seatOrder,
+          name: players.name,
+          nickname: players.nickname,
+          photoUrl: players.photoUrl,
+        })
+        .from(sessionPlayers)
+        .innerJoin(players, eq(sessionPlayers.playerId, players.id))
+        .where(eq(sessionPlayers.sessionId, liveSession.id)),
 
-    // Scoreboard aggregates derived from the same rows (no extra query).
-    const killMap = new Map<string, number>();
-    let totalAllIns = 0;
-    let totalEliminations = 0;
-
-    if (handIds.length > 0) {
-      const allHandPlayers = await db
+      // All hand_players of this session with their player info
+      db
         .select({
           handId: handPlayers.handId,
           playerId: handPlayers.playerId,
@@ -152,9 +191,66 @@ export async function GET() {
         .from(handPlayers)
         .innerJoin(players, eq(handPlayers.playerId, players.id))
         .innerJoin(hands, eq(handPlayers.handId, hands.id))
-        .where(eq(hands.sessionId, liveSession.id));
+        .where(eq(hands.sessionId, liveSession.id)),
 
-      // Aggregate per player
+      // Insights from the LAST hand only (most relevant)
+      probe.lastHandId
+        ? db
+            .select({
+              id: sessionInsights.id,
+              emoji: sessionInsights.emoji,
+              message: sessionInsights.message,
+              type: sessionInsights.type,
+              scope: sessionInsights.scope,
+              dedupKey: sessionInsights.dedupKey,
+              createdAt: sessionInsights.createdAt,
+            })
+            .from(sessionInsights)
+            .where(eq(sessionInsights.handId, probe.lastHandId))
+            .orderBy(desc(sessionInsights.createdAt))
+            .limit(5)
+        : Promise.resolve([]),
+    ]);
+
+    // Seated players (works even before any hand is played — used by the
+    // pre-game mesa view where `ranking` is still empty).
+    const seatedPlayers = seatRows.map((s) => ({
+      playerId: s.playerId,
+      name: s.name,
+      nickname: s.nickname,
+      photoUrl: s.photoUrl,
+      handsWon: 0,
+      handsPlayed: 0,
+      handsFolded: 0,
+      allIns: 0,
+      isEliminated: false,
+      seatOrder: s.seatOrder,
+    }));
+
+    // Aggregate the hand_players rows into the per-player ranking.
+    let ranking: {
+      playerId: string;
+      name: string;
+      nickname: string | null;
+      photoUrl: string | null;
+      handsWon: number;
+      handsPlayed: number;
+      handsFolded: number;
+      allIns: number;
+      isEliminated: boolean;
+      seatOrder: number | null;
+    }[] = [];
+
+    // Scoreboard aggregates derived from the same rows (no extra query).
+    const killMap = new Map<string, number>();
+    let totalAllIns = 0;
+    let totalEliminations = 0;
+
+    if (handPlayerRows.length > 0) {
+      const seatOrderMap = new Map<string, number | null>(
+        seatRows.map((s) => [s.playerId, s.seatOrder])
+      );
+
       const playerMap = new Map<
         string,
         { name: string; nickname: string | null; photoUrl: string | null; handsWon: number; handsPlayed: number; handsFolded: number; allIns: number; isEliminated: boolean }
@@ -163,7 +259,7 @@ export async function GET() {
       // Per-hand winner + elimination count, used for the kill aggregate.
       const byHand = new Map<string, { winnerId: string | null; elims: number }>();
 
-      for (const row of allHandPlayers) {
+      for (const row of handPlayerRows) {
         const existing = playerMap.get(row.playerId) || {
           name: row.playerName,
           nickname: row.playerNickname,
@@ -211,27 +307,6 @@ export async function GET() {
         });
     }
 
-    // Get insights from the LAST hand only (most relevant)
-    const lastHand = sessionHands[sessionHands.length - 1];
-    let insights: { id: string; emoji: string; message: string; type: string; scope: string; dedupKey: string | null; createdAt: Date }[] = [];
-
-    if (lastHand) {
-      insights = await db
-        .select({
-          id: sessionInsights.id,
-          emoji: sessionInsights.emoji,
-          message: sessionInsights.message,
-          type: sessionInsights.type,
-          scope: sessionInsights.scope,
-          dedupKey: sessionInsights.dedupKey,
-          createdAt: sessionInsights.createdAt,
-        })
-        .from(sessionInsights)
-        .where(eq(sessionInsights.handId, lastHand.id))
-        .orderBy(desc(sessionInsights.createdAt))
-        .limit(5);
-    }
-
     // Check if game is finished (only 1 alive)
     const alivePlayers = ranking.filter((r) => !r.isEliminated);
     const isFinished = alivePlayers.length === 1 && ranking.length > 1;
@@ -251,18 +326,14 @@ export async function GET() {
       }
     }
 
-    // Timing (derived from hand timestamps + session start).
-    const firstHandAt = sessionHands[0]?.createdAt ?? liveSession.createdAt;
-    const lastHandAt = sessionHands[sessionHands.length - 1]?.createdAt ?? null;
-
     // ─── Present-tense Dealer/SB (one hand AHEAD of the last saved hand) ─────
     // The last recorded hand's button has already rotated for the hand about to
     // be played. Show the CURRENT positions: dealer = seat to the right of the
     // last dealer (among alive players); SB = seat to the dealer's left.
     let presentDealerId: string | null = null;
     let presentSbId: string | null = null;
-    if (lastHand?.dealerId && alivePlayers.length >= 2) {
-      presentDealerId = seatToRight(alivePlayers, lastHand.dealerId);
+    if (probe.lastDealerId && alivePlayers.length >= 2) {
+      presentDealerId = seatToRight(alivePlayers, probe.lastDealerId);
       presentSbId = seatToLeft(alivePlayers, presentDealerId);
     }
 
@@ -285,49 +356,26 @@ export async function GET() {
     };
 
     // Table-level rolling insights (computed, not persisted) so the ticker keeps
-    // moving even when the last hand produced nothing interesting. Historical
-    // profiles are loaded only after PROFILE_MIN_HANDS and refreshed every
-    // PROFILE_REFRESH_EVERY_HANDS hands. They are best-effort: a failure must
-    // never break the live endpoint.
-    const handCount = sessionHands.length;
-    const shouldLoadProfiles = handCount >= PROFILE_MIN_HANDS;
-    const lastProfileRefresh = profileRefreshAt.get(liveSession.id);
-    const shouldRefreshProfiles =
-      shouldLoadProfiles &&
-      (lastProfileRefresh === undefined ||
-        handCount - lastProfileRefresh >= PROFILE_REFRESH_EVERY_HANDS);
-
-    const profileResults = shouldLoadProfiles
-      ? await Promise.allSettled(
-          alivePlayers.map((p) =>
-            getCachedProfile(p.playerId, shouldRefreshProfiles)
-          )
-        )
-      : [];
-    if (shouldRefreshProfiles) {
-      profileRefreshAt.set(liveSession.id, handCount);
-    }
-
-    const aliveProfiles = profileResults
-      .filter(
-        (r): r is PromiseFulfilledResult<PlayerProfile | null> =>
-          r.status === "fulfilled"
-      )
-      .map((r) => r.value)
-      .filter((p): p is PlayerProfile => p !== null);
+    // moving even when the last hand produced nothing interesting. The
+    // historical relations (kryptonite / nemesis / streak) are loaded in batch:
+    // 3 queries for the whole table, not 13 per player.
+    //
+    // They are best-effort: a failure must never break the live endpoint.
+    const aliveIds = alivePlayers.map((p) => p.playerId);
+    const relations = await loadRelations(aliveIds).catch(() => new Map());
 
     const tableInsights = buildTableInsights({
       ranking,
       scoreboard,
       handCount,
       aliveCount: alivePlayers.length,
-      profiles: aliveProfiles,
+      relations,
     });
 
     // Hand insights first (what just happened), then table insights. Drop table
     // insights whose theme is already covered by the last hand (e.g. a fold
     // streak vs the ghost), dedupe by id, and cap the rotation queue.
-    const reversedHandInsights = insights.slice().reverse();
+    const reversedHandInsights = insightRows.slice().reverse();
     const handThemes = new Set(
       reversedHandInsights
         .map((insight) => themeOfHandInsight(insight))
@@ -349,7 +397,7 @@ export async function GET() {
       })
       .slice(0, 7);
 
-    return NextResponse.json({
+    const payload = {
       isLive: true,
       isFinished,
       winner: isFinished ? alivePlayers[0] : null,
@@ -357,9 +405,14 @@ export async function GET() {
         id: liveSession.id,
         playedAt: liveSession.playedAt,
         playerCount: liveSession.playerCount,
-        handCount: sessionHands.length,
-        startedAt: (firstHandAt instanceof Date ? firstHandAt : new Date(firstHandAt)).toISOString(),
-        lastHandAt: lastHandAt ? (lastHandAt instanceof Date ? lastHandAt : new Date(lastHandAt)).toISOString() : null,
+        handCount,
+        startedAt: new Date(
+          (probe.firstHandAt ?? liveSession.createdAt.getTime() / 1000) * 1000
+        ).toISOString(),
+        lastHandAt:
+          probe.lastHandAt !== null && probe.lastHandAt !== undefined
+            ? new Date(probe.lastHandAt * 1000).toISOString()
+            : null,
         // Present-tense button positions: rotated one hand ahead of the last
         // saved hand, so the live table reflects the hand about to be played.
         dealerId: presentDealerId,
@@ -371,6 +424,20 @@ export async function GET() {
       ranking,
       seatedPlayers,
       insights: mergedInsights,
+    };
+
+    const entry = storeInCache(liveSession.id, version, payload);
+
+    const ifNoneMatch = request.headers.get("if-none-match");
+    if (ifNoneMatch && ifNoneMatch.split(",").some((t) => t.trim() === entry.etag)) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: { ETag: entry.etag, "Cache-Control": "no-store" },
+      });
+    }
+
+    return NextResponse.json(payload, {
+      headers: { ETag: entry.etag, "Cache-Control": "no-store" },
     });
   } catch (error) {
     console.error("Error fetching live data:", error);

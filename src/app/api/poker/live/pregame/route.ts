@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sessions, sessionPlayers, players } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getPlayerProfile } from "@/lib/player-profile";
+import { getPlayerRelations, getPlayerSummaries } from "@/lib/player-relations";
 import { getRivalries } from "@/lib/stats";
 
 /**
@@ -50,10 +50,14 @@ export async function GET() {
       .where(eq(sessionPlayers.sessionId, liveSession.id));
 
     const seatedIds = new Set(seated.map((s) => s.playerId));
+    const seatedIdsList = seated.map((s) => s.playerId);
 
-    // Pull each player's profile + the global rivalries in parallel.
-    const [profiles, rivalries] = await Promise.all([
-      Promise.all(seated.map((s) => getPlayerProfile(s.playerId))),
+    // Pull the career summaries + relations in BATCH (a few queries for the
+    // whole table) instead of a full PlayerProfile per player (~13 queries
+    // each, which blocks the pre-game screen).
+    const [summaries, relations, rivalries] = await Promise.all([
+      getPlayerSummaries(seatedIdsList),
+      getPlayerRelations(seatedIdsList),
       getRivalries(),
     ]);
 
@@ -61,34 +65,45 @@ export async function GET() {
     const nameOf = (p: { name: string; nickname: string | null }) => p.nickname || p.name;
 
     // Only narrate players with enough history.
-    const known = profiles.filter(
-      (p): p is NonNullable<typeof p> => p !== null && p.sessionsPlayed >= MIN_SESSIONS
-    );
+    const known = seated
+      .map((s) => ({
+        ...s,
+        summary: summaries.get(s.playerId),
+        relations: relations.get(s.playerId),
+      }))
+      .filter(
+        (p) =>
+          p.summary !== undefined &&
+          p.summary.sessionsPlayed >= MIN_SESSIONS
+      );
 
     // 1) Podium favorite — highest podium rate.
     const podiumFav = [...known]
-      .map((p) => ({ p, rate: p.podiums / p.sessionsPlayed }))
+      .map((p) => ({
+        p,
+        rate: p.summary!.podiums / p.summary!.sessionsPlayed,
+      }))
       .sort((a, b) => b.rate - a.rate)[0];
     if (podiumFav && podiumFav.rate >= 0.4) {
       cards.push({
         id: "podium",
         emoji: "🥉",
         headline: `Se espera que ${nameOf(podiumFav.p)} llegue al podio`,
-        subtitle: `Sube al podio el ${Math.round(podiumFav.rate * 100)}% de las noches (${podiumFav.p.podiums}/${podiumFav.p.sessionsPlayed})`,
+        subtitle: `Sube al podio el ${Math.round(podiumFav.rate * 100)}% de las noches (${podiumFav.p.summary!.podiums}/${podiumFav.p.summary!.sessionsPlayed})`,
         accent: "amber",
       });
     }
 
     // 2) Rey del winrate — best hand win rate (needs enough hands).
     const wrKing = [...known]
-      .filter((p) => p.handsPlayed >= 10)
-      .sort((a, b) => b.handWinRate - a.handWinRate)[0];
+      .filter((p) => p.summary!.handsPlayed >= 10)
+      .sort((a, b) => b.summary!.handWinRate - a.summary!.handWinRate)[0];
     if (wrKing) {
       cards.push({
         id: "winrate",
         emoji: "🎯",
         headline: `¿Hoy cae el rey del winrate?`,
-        subtitle: `${nameOf(wrKing)} acumula un ${wrKing.handWinRate}% de efectividad. ¡Impresionanteee!`,
+        subtitle: `${nameOf(wrKing)} acumula un ${wrKing.summary!.handWinRate}% de efectividad. ¡Impresionanteee!`,
         accent: "emerald",
       });
     }
@@ -110,39 +125,50 @@ export async function GET() {
     }
 
     // 4) El verdugo — most kills among seated players.
-    const executioner = [...known].sort((a, b) => b.kills - a.kills)[0];
-    if (executioner && executioner.kills >= 3) {
+    const executioner = [...known].sort(
+      (a, b) => b.summary!.kills - a.summary!.kills
+    )[0];
+    if (executioner && executioner.summary!.kills >= 3) {
       cards.push({
         id: "executioner",
         emoji: "☠️",
         headline: `El verdugo anda suelto: ${nameOf(executioner)}`,
-        subtitle: `Lleva ${executioner.kills} eliminaciones en su historial. Cuidado con sus fichas.`,
+        subtitle: `Lleva ${executioner.summary!.kills} eliminaciones en su historial. Cuidado con sus fichas.`,
         accent: "yellow",
       });
     }
 
     // 5) Hot streak — someone riding a current win streak.
     const onFire = [...known]
-      .filter((p) => p.currentStreak.type === "win" && p.currentStreak.count >= 2)
-      .sort((a, b) => b.currentStreak.count - a.currentStreak.count)[0];
-    if (onFire) {
+      .filter(
+        (p) =>
+          p.relations?.currentStreak.type === "win" &&
+          p.relations.currentStreak.count >= 2
+      )
+      .sort(
+        (a, b) =>
+          (b.relations?.currentStreak.count ?? 0) -
+          (a.relations?.currentStreak.count ?? 0)
+      )[0];
+    if (onFire?.relations) {
       cards.push({
         id: "streak",
         emoji: "🔥",
         headline: `${nameOf(onFire)} viene en llamas`,
-        subtitle: `${onFire.currentStreak.count} victorias seguidas. ¿Alguien lo para esta noche?`,
+        subtitle: `${onFire.relations.currentStreak.count} victorias seguidas. ¿Alguien lo para esta noche?`,
         accent: "cyan",
       });
     }
 
     // 6) Kryptonite drama — a seated player's kryptonite is also at the table.
     for (const p of known) {
-      if (p.kryptonite && seatedIds.has(p.kryptonite.playerId)) {
+      const kryptonite = p.relations?.kryptonite;
+      if (kryptonite && seatedIds.has(kryptonite.playerId)) {
         cards.push({
-          id: `kryptonite-${p.id}`,
+          id: `kryptonite-${p.playerId}`,
           emoji: "🧪",
-          headline: `${p.kryptonite.nickname || p.kryptonite.name} es la kryptonita de ${nameOf(p)}`,
-          subtitle: p.kryptonite.detail,
+          headline: `${kryptonite.nickname || kryptonite.name} es la kryptonita de ${nameOf(p)}`,
+          subtitle: kryptonite.detail,
           accent: "red",
         });
         break; // one is enough

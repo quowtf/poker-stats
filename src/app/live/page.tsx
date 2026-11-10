@@ -71,12 +71,43 @@ export default function LivePage() {
   const prevHandCount = useRef(0);
   // Guard so the very first load doesn't trigger a spotlight retroactively.
   const initializedHandCount = useRef(false);
+  // ETag of the last live payload, sent back as If-None-Match so an unchanged
+  // session answers 304 with no body.
+  const etagRef = useRef<string | null>(null);
+  // Mirror of showWinner inside the polling effect, so the effect itself does
+  // not depend on it (a dependency would restart the interval on every
+  // change).
+  const showWinnerRef = useRef(false);
 
   useEffect(() => {
     async function fetchLive() {
       try {
-        const res = await fetch("/api/poker/live");
+        const res = await fetch("/api/poker/live", {
+          // no-store keeps the browser out of the HTTP cache so the 304 we get
+          // back from our own ETag check reaches us untouched.
+          cache: "no-store",
+          headers: etagRef.current ? { "If-None-Match": etagRef.current } : {},
+        });
+
+        // Nothing changed since the last poll: keep the current state.
+        if (res.status === 304) return;
+
+        const etag = res.headers.get("etag");
+        if (etag) etagRef.current = etag;
+
         const json: LiveData = await res.json();
+
+        // Once the winner screen is up, keep the last payload: the session is
+        // closed server-side, so the next poll reports isLive=false and would
+        // otherwise wipe the winner data.
+        if (!json.isLive && showWinnerRef.current) {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+          return;
+        }
+
         setData(json);
 
         const handCount = json.session?.handCount ?? 0;
@@ -97,7 +128,8 @@ export default function LivePage() {
         }
 
         // Show winner screen
-        if (json.isFinished && !showWinner) {
+        if (json.isFinished && !showWinnerRef.current) {
+          showWinnerRef.current = true;
           setShowWinner(true);
           // Auto-close session
           if (json.session) {
@@ -120,7 +152,7 @@ export default function LivePage() {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (spotlightTimerRef.current) clearTimeout(spotlightTimerRef.current);
     };
-  }, [showWinner]);
+  }, []);
 
   // Fetch pre-game insight cards once, while live and no hands played yet.
   const isPreGame = !!data?.isLive && data.session?.handCount === 0;
@@ -191,19 +223,23 @@ export default function LivePage() {
   return (
     <div className="relative flex h-screen gap-4 overflow-hidden bg-black p-4 text-white">
       {/* Column 1: ranking table */}
-      <div className="flex min-h-0 w-1/2 flex-col">
+      <div className="flex min-h-0 w-1/2 min-w-0 flex-col">
         <RankingTable players={ranking} />
       </div>
 
-      {/* Column 2: scoreboard on top, insights below */}
-      <div className="flex min-h-0 w-1/2 flex-col gap-4">
-        <Scoreboard
-          round={session.handCount}
-          startedAt={session.startedAt}
-          playersAlive={scoreboard.playersAlive}
-          headsUpMode={session.headsUpMode}
+      {/* Column 2: scoreboard + insights in one card */}
+      <div className="flex min-h-0 w-1/2 min-w-0 flex-col">
+        <NewsTicker
+          insights={insights}
+          header={
+            <Scoreboard
+              round={session.handCount}
+              startedAt={session.startedAt}
+              playersAlive={scoreboard.playersAlive}
+              headsUpMode={session.headsUpMode}
+            />
+          }
         />
-        <NewsTicker insights={insights} />
       </div>
     </div>
   );
