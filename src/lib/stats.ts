@@ -104,6 +104,7 @@ export type LastSessionResult = {
     playerId: string;
     name: string;
     nickname: string | null;
+    photoUrl: string | null;
     finishPosition: number | null;
   }[];
 } | null;
@@ -131,6 +132,7 @@ export async function getLastSession(): Promise<LastSessionResult> {
       playerId: sessionPlayers.playerId,
       name: players.name,
       nickname: players.nickname,
+      photoUrl: players.photoUrl,
       finishPosition: sessionPlayers.finishPosition,
     })
     .from(sessionPlayers)

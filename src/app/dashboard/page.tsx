@@ -1,6 +1,7 @@
 import Link from "next/link";
 import InfoTip from "./InfoTip";
 import StatRail, { MIN_SESSIONS_FOR_TRENDS, visibleStatLinks } from "./StatRail";
+import { normalizePhotoUrl } from "@/lib/photo";
 import {
   getLeaderboard,
   getLastSession,
@@ -539,6 +540,7 @@ type PodiumPlayer = {
   playerId: string;
   name: string;
   nickname: string | null;
+  photoUrl: string | null;
   finishPosition: number | null;
 };
 
@@ -556,35 +558,65 @@ function Podium({ players }: { players: PodiumPlayer[] }) {
     emoji,
     emojiSize,
     nameColor,
+    numColor,
     pedestalH,
     pedestalBg,
-    numColor,
+    photoSize,
+    photoBorder,
+    fallbackBg,
     num,
   }: {
     player: PodiumPlayer;
     emoji: string;
     emojiSize: string;
     nameColor: string;
+    numColor: string;
     pedestalH: string;
     pedestalBg: string;
-    numColor: string;
+    photoSize: string;
+    photoBorder: string;
+    fallbackBg: string;
     num: number;
-  }) => (
-    <div className="flex flex-1 flex-col items-center">
-      <span className={`${emojiSize} leading-none`}>{emoji}</span>
-      <span
-        className={`mt-1 w-full truncate px-1 text-center text-sm font-semibold ${nameColor}`}
-        title={player.nickname || player.name}
-      >
-        {player.nickname || player.name}
-      </span>
-      <div
-        className={`mt-2 flex w-full items-start justify-center rounded-t-lg pt-2 text-2xl font-black ${pedestalH} ${pedestalBg} ${numColor}`}
-      >
-        {num}
+  }) => {
+    const photo = normalizePhotoUrl(player.photoUrl);
+    return (
+      <div className="flex min-w-0 flex-1 flex-col items-center">
+        <span className={`${emojiSize} leading-none`}>{emoji}</span>
+        <span
+          className={`mt-1 w-full truncate px-1 text-center text-sm font-semibold ${nameColor}`}
+          title={player.nickname || player.name}
+        >
+          {player.nickname || player.name}
+        </span>
+        <div
+          className={`mt-2 flex w-full items-center justify-center rounded-t-lg ${pedestalH} ${pedestalBg}`}
+        >
+          {/* Always 1:1. Border color marks the podium spot. */}
+          <div
+            className={`aspect-square ${photoSize} overflow-hidden rounded-lg border-4 ${photoBorder} ${
+              photo ? "bg-black/40" : fallbackBg
+            }`}
+          >
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photo}
+                alt={player.nickname || player.name}
+                referrerPolicy="no-referrer"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span
+                className={`flex h-full w-full items-center justify-center text-2xl font-black ${numColor}`}
+              >
+                {num}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="rounded-xl bg-gradient-to-b from-gray-900 to-gray-950 p-5">
@@ -597,9 +629,12 @@ function Podium({ players }: { players: PodiumPlayer[] }) {
             emoji="😤"
             emojiSize="text-5xl"
             nameColor="text-gray-300"
-            pedestalH="h-20"
+            numColor="text-gray-900"
+            pedestalH="h-24"
             pedestalBg="bg-gray-700/50"
-            numColor="text-gray-400"
+            photoSize="w-16 lg:w-20"
+            photoBorder="border-gray-300"
+            fallbackBg="bg-gray-300"
             num={2}
           />
         )}
@@ -611,9 +646,12 @@ function Podium({ players }: { players: PodiumPlayer[] }) {
             emoji="🏆"
             emojiSize="text-7xl"
             nameColor="text-yellow-300"
+            numColor="text-yellow-950"
             pedestalH="h-32"
             pedestalBg="bg-yellow-600/25"
-            numColor="text-yellow-400"
+            photoSize="w-20 lg:w-24"
+            photoBorder="border-yellow-400"
+            fallbackBg="bg-yellow-400"
             num={1}
           />
         )}
@@ -625,9 +663,12 @@ function Podium({ players }: { players: PodiumPlayer[] }) {
             emoji="🤡"
             emojiSize="text-4xl"
             nameColor="text-gray-400"
-            pedestalH="h-14"
+            numColor="text-amber-950"
+            pedestalH="h-20"
             pedestalBg="bg-amber-800/30"
-            numColor="text-amber-600"
+            photoSize="w-12 lg:w-16"
+            photoBorder="border-amber-600"
+            fallbackBg="bg-amber-600"
             num={3}
           />
         )}
